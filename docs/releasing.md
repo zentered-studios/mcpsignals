@@ -100,6 +100,59 @@ long-lived token is created anywhere.
 
 From here on, merging a `feat` or `fix` into `main` releases automatically.
 
+> Step 4 is easy to lose. If the repository is ever recreated or its history rewritten, the
+> tag goes with it, and semantic-release will then believe nothing was ever released and
+> publish `1.0.0`. Check with `git ls-remote --tags origin` before relying on a release.
+
+## Troubleshooting
+
+### `Missing helper: "conventional-changelog-conventionalcommits requires ..."`
+
+The `conventionalcommits` preset and the changelog writer are on incompatible majors.
+
+`@semantic-release/release-notes-generator@14` depends on `conventional-changelog-writer@^8`,
+while preset **v10** dropped support for writer 8 (it renders through
+`@conventional-changelog/template` instead). The preset is therefore pinned to **`^9.3.1`** in
+the root `package.json`.
+
+Do not bump `conventional-changelog-conventionalcommits` to 10 or later until
+`@semantic-release/release-notes-generator` depends on `conventional-changelog-writer@^9` or
+newer. An automated dependency bump will happily reintroduce this. Note that
+`semantic-release --dry-run` does **not** catch it when run from a non-release branch: it
+exits at the branch check before ever rendering notes.
+
+### `EINVALIDNPMTOKEN Invalid npm token`
+
+This error points at the wrong thing. **Do not add an `NPM_TOKEN` in response to it.**
+
+`@semantic-release/npm` tries the OIDC exchange first and only falls back to token
+authentication when that exchange does not succeed. The fallback then complains about a
+missing or invalid token, even though no token was ever meant to exist.
+
+Look further up the log for the real reason:
+
+```
+Verifying OIDC context for publishing from GitHub Actions
+OIDC token exchange with the npm registry failed: 404 OIDC token exchange error - package not found
+```
+
+Common causes, in order of likelihood:
+
+- **The package is not on the registry.** A trusted publisher cannot exist for a package that
+  has never been published. Run the bootstrap above.
+- **The trusted publisher does not match.** Repository, workflow filename (`release.yml`) and
+  environment (`npm-publish`) are all case-sensitive, and npm does not validate them when
+  saved. Check with `npm trust list mcpsignals`.
+- **`id-token: write` is missing** from the job. The log then says
+  `Retrieval of GitHub Actions OIDC token failed` instead of reporting a failed exchange.
+
+### The release fails during the `fail` step
+
+`@semantic-release/github` opens an issue when a release fails. If that issue carries a label
+the repository does not have, GitHub rejects it with
+`422 Validation Failed ... resource: Label`, and that error masks whatever actually broke.
+Labels are disabled in `.releaserc.json` for this reason.
+
 ## Local tooling
 
 | Command                | What it does                            |

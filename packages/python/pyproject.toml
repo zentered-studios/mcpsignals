@@ -1,0 +1,37 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mcpsignals"
+version = "0.1.0"
+description = "Drop-in instrumentation for MCP servers. Writes tool-call events to a database you own."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [{ name = "mcpsignals contributors" }]
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+dependencies = ["mcp>=2.0.0"]
+
+[project.optional-dependencies]
+postgres = ["asyncpg>=0.29"]
+bigquery = ["google-cloud-bigquery>=3.11"]
+otlp = ["opentelemetry-api>=1.20"]
+
+[project.urls]
+Homepage = "https://github.com/mcpsignals/mcpsignals"
+Repository = "https://github.com/mcpsignals/mcpsignals"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mcpsignals"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

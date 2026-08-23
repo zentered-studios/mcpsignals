@@ -1,0 +1,24 @@
+{
+  "name": "mcpsignals-monorepo",
+  "private": true,
+  "workspaces": [
+    "packages/node",
+    "examples/node-express",
+    "examples/node-fastify"
+  ],
+  "scripts": {
+    "format": "biome format --write .",
+    "format:check": "biome format .",
+    "lint": "oxlint",
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.10",
+    "@commitlint/cli": "^21.2.2",
+    "@commitlint/config-conventional": "^21.2.2",
+    "conventional-changelog-conventionalcommits": "^10.4.0",
+    "husky": "^9.1.7",
+    "oxlint": "^1.79.0",
+    "semantic-release": "^25.0.9"
+  }
+}

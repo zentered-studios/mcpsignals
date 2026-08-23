@@ -1,0 +1,77 @@
+{
+  "name": "mcpsignals",
+  "version": "0.1.0",
+  "description": "Drop-in instrumentation for MCP servers. Writes tool-call events to a warehouse you own.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zentered-studios/mcpsignals.git",
+    "directory": "packages/node"
+  },
+  "homepage": "https://github.com/zentered-studios/mcpsignals#readme",
+  "bugs": {
+    "url": "https://github.com/zentered-studios/mcpsignals/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "pretest": "npm run build",
+    "test": "node --test test/*.test.mjs"
+  },
+  "peerDependencies": {
+    "@modelcontextprotocol/server": "^2.0.0",
+    "zod": "^4.2.0",
+    "pg": "^8.11.0",
+    "@google-cloud/bigquery": "^7.0.0",
+    "@opentelemetry/api": "^1.9.0"
+  },
+  "peerDependenciesMeta": {
+    "pg": {
+      "optional": true
+    },
+    "@google-cloud/bigquery": {
+      "optional": true
+    },
+    "@opentelemetry/api": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/server": "^2.0.0",
+    "@modelcontextprotocol/client": "^2.0.0",
+    "@google-cloud/bigquery": "^7.0.0",
+    "@opentelemetry/api": "^1.9.0",
+    "@types/node": "^22.10.0",
+    "@types/pg": "^8.11.0",
+    "pg": "^8.11.0",
+    "tsup": "^8.3.0",
+    "typescript": "^5.7.0",
+    "zod": "^4.2.0"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "observability",
+    "instrumentation",
+    "analytics"
+  ]
+}

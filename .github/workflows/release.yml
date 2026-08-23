@@ -1,0 +1,55 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Never let two releases compute a version from the same history at once.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.repository == 'zentered-studios/mcpsignals'
+    runs-on: ubuntu-latest
+    environment: npm-publish
+    permissions:
+      contents: write # push the release tag and create the GitHub release
+      issues: write # comment on issues closed by the release
+      pull-requests: write # comment on pull requests included in the release
+      id-token: write # OIDC for npm trusted publishing and provenance
+    steps:
+      # fetch-depth: 0 so semantic-release can read every tag and commit.
+      # Credentials stay persisted: semantic-release pushes the tag over git.
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+
+      # registry-url points npm at the public registry. NODE_AUTH_TOKEN is
+      # deliberately never set: any token in the environment makes npm fall
+      # back to the legacy token flow instead of OIDC trusted publishing.
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+          package-manager-cache: false
+
+      # Trusted publishing needs npm >= 11.5.1. npm 12 additionally blocks
+      # dependency install scripts, git dependencies and remote tarballs by
+      # default, which is what keeps `npm ci` from running third-party code in
+      # the same job that holds the OIDC token.
+      - run: npm install -g npm@12
+
+      - run: npm ci
+      - run: npm run build --workspace packages/node
+      - run: npm test --workspace packages/node
+
+      - run: npx semantic-release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,4 @@
+-e ../../packages/python
+starlette>=0.40.0
+uvicorn>=0.32.0
+mcp>=2.0.0

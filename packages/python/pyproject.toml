@@ -4,6 +4,10 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mcpsignals"
+# Placeholder, and deliberately not kept in sync by hand. semantic-release
+# stamps the real version in at release time and never commits it back, exactly
+# as packages/node/package.json is left at 0.1.0. Do not read this as the
+# published version - check PyPI or the git tags for that.
 version = "0.1.0"
 description = "Drop-in instrumentation for MCP servers. Writes tool-call events to a database you own."
 readme = "README.md"
@@ -26,8 +30,9 @@ bigquery = ["google-cloud-bigquery>=3.11"]
 otlp = ["opentelemetry-api>=1.20"]
 
 [project.urls]
-Homepage = "https://github.com/mcpsignals/mcpsignals"
-Repository = "https://github.com/mcpsignals/mcpsignals"
+Homepage = "https://github.com/zentered-studios/mcpsignals#readme"
+Repository = "https://github.com/zentered-studios/mcpsignals"
+Issues = "https://github.com/zentered-studios/mcpsignals/issues"
 
 # Not an optional-dependencies extra: dev tooling should not be installable by
 # consumers as `pip install mcpsignals[dev]`. PEP 735 groups stay out of the

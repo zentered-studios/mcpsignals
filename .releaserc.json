@@ -36,6 +36,12 @@
       }
     ],
     [
+      "@semantic-release/exec",
+      {
+        "prepareCmd": "uv version --project packages/python --frozen ${nextRelease.version} && uv build --project packages/python --out-dir packages/python/dist"
+      }
+    ],
+    [
       "@semantic-release/github",
       {
         "labels": false,

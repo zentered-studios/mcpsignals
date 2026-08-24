@@ -19,6 +19,10 @@ jobs:
     if: github.repository == 'zentered-studios/mcpsignals'
     runs-on: ubuntu-latest
     environment: npm-publish
+    # Consumed by the pypi job below, which must not run when the commits since
+    # the last tag produced no release.
+    outputs:
+      python-dist: ${{ steps.python-dist.outputs.built }}
     permissions:
       contents: write # push the release tag and create the GitHub release
       issues: write # comment on issues closed by the release
@@ -46,6 +50,11 @@ jobs:
       # the same job that holds the OIDC token.
       - run: npm install -g npm@12
 
+      # uv is used by the @semantic-release/exec prepare step, which stamps the
+      # version semantic-release computed into packages/python/pyproject.toml
+      # and builds the sdist and wheel from it.
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+
       - run: npm ci
       - run: npm run build --workspace packages/node
       - run: npm test --workspace packages/node
@@ -53,3 +62,51 @@ jobs:
       - run: npx semantic-release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # The dist directory only exists when semantic-release decided there was a
+      # release to make and its prepare step ran. If npm publishing had failed,
+      # semantic-release would have exited non-zero and this job would already
+      # have stopped, so reaching here with artifacts present means publish.
+      - name: Check whether Python distributions were built
+        id: python-dist
+        run: |
+          if [ -n "$(ls -A packages/python/dist 2>/dev/null)" ]; then
+            echo "built=true" >> "$GITHUB_OUTPUT"
+            ls -l packages/python/dist
+          else
+            echo "built=false" >> "$GITHUB_OUTPUT"
+            echo "No release this run - nothing to publish to PyPI."
+          fi
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: steps.python-dist.outputs.built == 'true'
+        with:
+          name: python-dist
+          path: packages/python/dist/
+          if-no-files-found: error
+
+  # Separate job because a job may declare only one environment, and the job
+  # above is already bound to npm-publish. This one is bound to pypi, which is
+  # the environment registered on the PyPI trusted publisher.
+  #
+  # Ordering caveat: the git tag, the GitHub release and the npm publish have
+  # all already happened by the time this runs. A failure here leaves a release
+  # that exists on npm but not on PyPI - rerun this job once the cause is fixed
+  # rather than cutting a new version.
+  pypi:
+    needs: release
+    if: needs.release.outputs.python-dist == 'true'
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write # OIDC for PyPI trusted publishing; no token is used
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: python-dist
+          path: dist/
+
+      # Uploads everything in dist/. Credentials are deliberately absent: the
+      # action mints a short-lived OIDC token and PyPI verifies it against the
+      # trusted publisher registered for the project.
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2

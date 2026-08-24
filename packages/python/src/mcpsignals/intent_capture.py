@@ -29,7 +29,9 @@ _INJECTED_PROPERTIES = {
 }
 
 
-def enabled_for(tool_name: str, *, global_enabled: bool, overrides: Mapping[str, bool] | None) -> bool:
+def enabled_for(
+    tool_name: str, *, global_enabled: bool, overrides: Mapping[str, bool] | None
+) -> bool:
     if overrides is not None and tool_name in overrides:
         return overrides[tool_name]
     return global_enabled
@@ -47,7 +49,9 @@ def inject_schema(input_schema: dict[str, Any] | None) -> dict[str, Any]:
     return schema
 
 
-def strip_injected(arguments: Mapping[str, Any] | None) -> tuple[dict[str, Any], dict[str, str | None]]:
+def strip_injected(
+    arguments: Mapping[str, Any] | None,
+) -> tuple[dict[str, Any], dict[str, str | None]]:
     """Split raw arguments into (clean_arguments, extracted) where
     `extracted` holds session_id/agent_id/intent (None if absent) and
     `clean_arguments` has those three keys removed - exactly what the

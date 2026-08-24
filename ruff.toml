@@ -1,0 +1,29 @@
+# Ruff is to Python what Biome and oxlint are to JavaScript in this repo: it
+# formats and it lints, but line length is owned by the formatter alone, so a
+# finding is only ever reported by one tool. That is why E501 stays unselected.
+#
+# Scope is the whole repo - packages/python and the Python examples - matching
+# the repo-wide reach of biome.json and .oxlintrc.json.
+
+line-length = 100 # matches biome.json formatter.lineWidth
+
+# There is no root pyproject.toml for Ruff to infer this from, so it is set by
+# hand. It MUST track requires-python in packages/python/pyproject.toml: if this
+# is newer than the oldest supported runtime, the UP rules will rewrite code
+# into syntax that the oldest runtime cannot parse.
+target-version = "py310"
+
+exclude = ["dist", "build", "node_modules", ".venv"]
+
+[lint]
+select = [
+  "E",   # pycodestyle errors
+  "F",   # pyflakes
+  "I",   # isort - import ordering
+  "UP",  # pyupgrade - bounded by target-version above
+  "B",   # flake8-bugbear
+  "SIM", # flake8-simplify
+]
+ignore = [
+  "E501", # line length - the formatter owns this
+]

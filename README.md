@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.svg">
+    <img src="assets/logo.svg" alt="mcpsignals" width="72" height="72">
+  </picture>
+</p>
+
 # mcpsignals
 
 You put an MCP server in front of your API so agents could use it.

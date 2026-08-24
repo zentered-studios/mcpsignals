@@ -145,15 +145,15 @@ jobs:
           # block then refuses. The leading "./" forces the file resolution.
           npm publish "./${tarballs[0]}"
 
-  # Chained behind npm-publish rather than behind release: with the approval
-  # gate moved off the release job, running this in parallel would push the
-  # version to PyPI while npm was still waiting for a reviewer. Keeping them in
-  # series means one approval releases both registries, in a fixed order.
-  #
-  # Same ordering caveat as above - rerun this job on failure rather than
-  # cutting a new version.
+  # Runs in parallel with npm-publish (both depend only on release) rather than
+  # chained behind it: pypi has no approval gate of its own, so waiting on
+  # npm-publish's reviewer would just delay a PyPI publish that's already
+  # ready. Tradeoff: if npm-publish fails or is rejected after pypi has
+  # already published, the two registries end up out of sync for that
+  # version - same ordering caveat as npm-publish, rerun the failed job rather
+  # than cutting a new version.
   pypi:
-    needs: [release, npm-publish]
+    needs: release
     if: needs.release.outputs.released == 'true'
     runs-on: ubuntu-latest
     environment: pypi

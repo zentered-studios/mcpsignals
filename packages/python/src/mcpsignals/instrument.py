@@ -23,7 +23,7 @@ import json
 import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from mcpsignals.buffer import EventBuffer
@@ -183,7 +183,10 @@ def instrument(
             arguments = redact_arguments(clean_arguments, redaction) if capture_arguments else None
 
             event = ToolCallEvent(
-                ts=datetime.now(UTC),
+                # Not datetime.UTC: that alias is 3.11+, and requires-python
+                # allows 3.10. Ruff's UP017 would rewrite this, which is why
+                # ruff.toml pins target-version to py310.
+                ts=datetime.now(timezone.utc),
                 server_name=server_name,
                 server_version=server_version,
                 tool_name=tool_name,

@@ -1,11 +1,10 @@
 import contextlib
 
 from mcp.server.mcpserver import MCPServer
+from mcpsignals import instrument
 from starlette.applications import Starlette
 from starlette.responses import JSONResponse
 from starlette.routing import Mount, Route
-
-from mcpsignals import instrument
 
 server = MCPServer("notes")
 

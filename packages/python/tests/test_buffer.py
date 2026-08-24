@@ -1,7 +1,6 @@
 import asyncio
 
 import pytest
-
 from mcpsignals.buffer import EventBuffer
 from mcpsignals.events import ToolCallEvent
 

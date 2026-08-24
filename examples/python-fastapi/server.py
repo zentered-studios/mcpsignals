@@ -2,7 +2,6 @@ import contextlib
 
 from fastapi import FastAPI
 from mcp.server.mcpserver import MCPServer
-
 from mcpsignals import instrument
 
 server = MCPServer("notes")

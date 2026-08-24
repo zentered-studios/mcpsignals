@@ -34,7 +34,9 @@ from mcpsignals.redaction import RedactionConfig, redact_arguments
 from mcpsignals.sinks.base import Sink
 from mcpsignals.sinks.console import ConsoleSink
 
-ResolveIdentity = Callable[[Any], tuple[str | None, str | None] | Awaitable[tuple[str | None, str | None]]]
+ResolveIdentity = Callable[
+    [Any], tuple[str | None, str | None] | Awaitable[tuple[str | None, str | None]]
+]
 
 
 def _is_error_result(result: Any) -> bool:
@@ -104,11 +106,15 @@ def instrument(
                 if isinstance(result, Mapping):
                     for tool in result.get("tools") or []:
                         name = tool.get("name")
-                        if enabled_for(name, global_enabled=intent_capture, overrides=intent_capture_tools):
+                        if enabled_for(
+                            name, global_enabled=intent_capture, overrides=intent_capture_tools
+                        ):
                             tool["inputSchema"] = inject_schema(tool.get("inputSchema"))
                 else:
                     for tool in getattr(result, "tools", None) or []:
-                        if enabled_for(tool.name, global_enabled=intent_capture, overrides=intent_capture_tools):
+                        if enabled_for(
+                            tool.name, global_enabled=intent_capture, overrides=intent_capture_tools
+                        ):
                             tool.input_schema = inject_schema(tool.input_schema)
             return result
 
@@ -120,7 +126,9 @@ def instrument(
         raw_arguments = params.get("arguments") or {}
         request_bytes = len(json.dumps(raw_arguments, default=str).encode())
 
-        tool_intent_enabled = enabled_for(tool_name, global_enabled=intent_capture, overrides=intent_capture_tools)
+        tool_intent_enabled = enabled_for(
+            tool_name, global_enabled=intent_capture, overrides=intent_capture_tools
+        )
         if tool_intent_enabled:
             clean_arguments, extracted = strip_injected(raw_arguments)
             forwarded_params = dict(params)

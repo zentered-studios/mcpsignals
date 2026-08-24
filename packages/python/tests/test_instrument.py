@@ -4,7 +4,6 @@ import pytest
 from mcp.client.client import Client
 from mcp.server.mcpserver import MCPServer
 from mcp.types import Implementation
-
 from mcpsignals import instrument
 from mcpsignals.events import ToolCallEvent
 
@@ -20,7 +19,14 @@ class RecordingSink:
 def build_server(**instrument_kwargs):
     server = MCPServer("test-server")
     sink = RecordingSink()
-    instrument(server, server_name="test-server", server_version="1.2.3", sinks=[sink], buffer_size=1, **instrument_kwargs)
+    instrument(
+        server,
+        server_name="test-server",
+        server_version="1.2.3",
+        sinks=[sink],
+        buffer_size=1,
+        **instrument_kwargs,
+    )
     return server, sink
 
 
@@ -32,7 +38,9 @@ async def test_success_path_records_event():
     def add(a: int, b: int) -> int:
         return a + b
 
-    async with Client(server, client_info=Implementation(name="test-client", version="9.9")) as client:
+    async with Client(
+        server, client_info=Implementation(name="test-client", version="9.9")
+    ) as client:
         result = await client.call_tool("add", {"a": 1, "b": 2})
         await asyncio.sleep(0.05)
 
@@ -160,7 +168,12 @@ async def test_intent_capture_injects_schema_and_strips_before_handler():
 
         await client.call_tool(
             "search",
-            {"query": "mugs", "session_id": "sess-1", "agent_id": "agent-1", "intent": "user asked"},
+            {
+                "query": "mugs",
+                "session_id": "sess-1",
+                "agent_id": "agent-1",
+                "intent": "user asked",
+            },
         )
         await asyncio.sleep(0.05)
 

@@ -140,7 +140,10 @@ jobs:
             echo "Expected exactly one tarball, found ${#tarballs[@]}: ${tarballs[*]-none}" >&2
             exit 1
           fi
-          npm publish "${tarballs[0]}"
+          # npm-package-arg parses a bare "dist/foo.tgz" as GitHub shorthand
+          # (owner/repo) rather than a local path, which npm 12's git-fetch
+          # block then refuses. The leading "./" forces the file resolution.
+          npm publish "./${tarballs[0]}"
 
   # Chained behind npm-publish rather than behind release: with the approval
   # gate moved off the release job, running this in parallel would push the

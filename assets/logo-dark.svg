@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120" role="img" aria-labelledby="mcpsignals-logo-dark-title">
+  <title id="mcpsignals-logo-dark-title">mcpsignals</title>
+  <g fill="none" stroke-width="7.5" stroke-linecap="butt" stroke-linejoin="miter" stroke-miterlimit="12">
+    <path d="M28 16 L16 16 L16 104 L28 104" stroke="#E9EEED"/>
+    <path d="M92 16 L104 16 L104 104 L92 104" stroke="#E9EEED"/>
+    <path d="M35 76 L47.5 44 L60 76 L72.5 44 L85 76" stroke="#5AC8D0"/>
+  </g>
+</svg>

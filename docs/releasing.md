@@ -24,13 +24,22 @@ Commit types map to versions like this:
 `commitlint` enforces the type list in CI and in the local `commit-msg` hook, so a typo in a
 commit type fails fast instead of silently producing no release.
 
-### A note on 0.x
+### The first automated release is 1.0.0
 
-The package is in `0.x`. semantic-release has no "stay in 0.x" mode - it applies plain
-semver. From `v0.1.0` a `fix` gives `0.1.1` and a `feat` gives `0.2.0` as you would expect,
-but the **first** `feat!` or `BREAKING CHANGE:` footer jumps straight to `1.0.0`. There is no
-way to keep breaking changes inside `0.x` automatically, so hold breaking changes until you
-mean to commit to a stable API.
+`0.1.0` exists on npm but was published by hand, purely to bootstrap trusted publishing. No
+git tag was ever created for it, and semantic-release determines the previous release
+**only** from git tags - it never reads the registry. With no tag to continue from it treats
+the next release as the first one, and the first release is hardcoded to `1.0.0` in
+`semantic-release/lib/definitions/constants.js`. There is no setting to change it.
+
+That is deliberate here: seeding a tag by hand to preserve `0.x` would mean hand-maintaining
+the very thing semantic-release exists to own. So `0.1.0` stands as a bootstrap artifact,
+the first automated release is `1.0.0`, and every tag from that point on is created by
+semantic-release.
+
+Plain semver applies from there: `fix` and `perf` give `1.0.1`, `feat` gives `1.1.0`, and a
+`feat!` or `BREAKING CHANGE:` footer gives `2.0.0`. Publishing `1.0.0` is a statement that
+the API is stable, so treat breaking changes accordingly.
 
 ## Publishing credentials
 
@@ -63,6 +72,9 @@ npm cannot register a trusted publisher for a package that does not exist yet, s
 first version has to be published by hand. This is done once, from a laptop, with 2FA - no
 long-lived token is created anywhere.
 
+**This has already been done for `mcpsignals`** - it is recorded here for reference, and for
+any future package published out of this repository.
+
 1. Create the `npm-publish` environment in **Settings -> Environments** and add yourself as a
    required reviewer.
 
@@ -90,19 +102,16 @@ long-lived token is created anywhere.
 
    Verify it with `npm trust list mcpsignals`.
 
-4. Tag the published commit so semantic-release knows where to continue from. Without this
-   it assumes nothing was ever released and tries to publish `1.0.0`:
+That is the whole bootstrap. No tag is created by hand - see
+[The first automated release is 1.0.0](#the-first-automated-release-is-100). From here on,
+merging a `feat` or `fix` into `main` releases automatically, and semantic-release creates
+every tag.
 
-   ```sh
-   git tag v0.1.0
-   git push origin v0.1.0
-   ```
-
-From here on, merging a `feat` or `fix` into `main` releases automatically.
-
-> Step 4 is easy to lose. If the repository is ever recreated or its history rewritten, the
-> tag goes with it, and semantic-release will then believe nothing was ever released and
-> publish `1.0.0`. Check with `git ls-remote --tags origin` before relying on a release.
+> Once `1.0.0` is released, its tag is what every later version is computed from. If the
+> repository's history is ever rewritten or the repository recreated, the tags go with it and
+> semantic-release will try to publish `1.0.0` again - which npm rejects, because a published
+> version can never be reused. Check `git ls-remote --tags origin` before assuming a release
+> will work.
 
 ## Troubleshooting
 

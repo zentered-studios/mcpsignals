@@ -15,19 +15,27 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # This job deliberately declares no `environment`. It is the job that decides
+  # whether there is a release at all, so binding it to an approval-gated
+  # environment parked a pending review on every push to main - including
+  # docs-only commits that semantic-release would have skipped. The approval
+  # now sits on npm-publish below, which only runs once semantic-release has
+  # actually cut a tag.
+  #
+  # Because @semantic-release/npm is configured with npmPublish: false, this
+  # job needs no npm credentials: the plugin skips its auth verification and
+  # only stamps the version and packs a tarball into dist/.
   release:
     if: github.repository == 'zentered-studios/mcpsignals'
     runs-on: ubuntu-latest
-    environment: npm-publish
-    # Consumed by the pypi job below, which must not run when the commits since
-    # the last tag produced no release.
+    # Consumed by the publish jobs below, which must not run when the commits
+    # since the last tag produced no release.
     outputs:
-      python-dist: ${{ steps.python-dist.outputs.built }}
+      released: ${{ steps.artifacts.outputs.released }}
     permissions:
       contents: write # push the release tag and create the GitHub release
       issues: write # comment on issues closed by the release
       pull-requests: write # comment on pull requests included in the release
-      id-token: write # OIDC for npm trusted publishing and provenance
     steps:
       # fetch-depth: 0 so semantic-release can read every tag and commit.
       # Credentials stay persisted: semantic-release pushes the tag over git.
@@ -35,19 +43,13 @@ jobs:
         with:
           fetch-depth: 0
 
-      # registry-url points npm at the public registry. NODE_AUTH_TOKEN is
-      # deliberately never set: any token in the environment makes npm fall
-      # back to the legacy token flow instead of OIDC trusted publishing.
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: "24"
-          registry-url: "https://registry.npmjs.org"
           package-manager-cache: false
 
-      # Trusted publishing needs npm >= 11.5.1. npm 12 additionally blocks
-      # dependency install scripts, git dependencies and remote tarballs by
-      # default, which is what keeps `npm ci` from running third-party code in
-      # the same job that holds the OIDC token.
+      # npm 12 blocks dependency install scripts, git dependencies and remote
+      # tarballs by default, which keeps `npm ci` from running third-party code.
       - run: npm install -g npm@12
 
       # uv is used by the @semantic-release/exec prepare step, which stamps the
@@ -63,39 +65,93 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # The dist directory only exists when semantic-release decided there was a
-      # release to make and its prepare step ran. If npm publishing had failed,
-      # semantic-release would have exited non-zero and this job would already
-      # have stopped, so reaching here with artifacts present means publish.
-      - name: Check whether Python distributions were built
-        id: python-dist
+      # dist/ and packages/python/dist only exist when semantic-release decided
+      # there was a release to make and its prepare steps ran. Both are produced
+      # by the same prepare phase, so either both exist or semantic-release
+      # exited non-zero and this job already stopped - one flag covers both.
+      - name: Check whether release artifacts were built
+        id: artifacts
         run: |
-          if [ -n "$(ls -A packages/python/dist 2>/dev/null)" ]; then
-            echo "built=true" >> "$GITHUB_OUTPUT"
-            ls -l packages/python/dist
+          if [ -n "$(ls -A dist/*.tgz 2>/dev/null)" ]; then
+            echo "released=true" >> "$GITHUB_OUTPUT"
+            ls -l dist packages/python/dist
           else
-            echo "built=false" >> "$GITHUB_OUTPUT"
-            echo "No release this run - nothing to publish to PyPI."
+            echo "released=false" >> "$GITHUB_OUTPUT"
+            echo "No release this run - nothing to publish."
           fi
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: steps.python-dist.outputs.built == 'true'
+        if: steps.artifacts.outputs.released == 'true'
+        with:
+          name: npm-dist
+          path: dist/*.tgz
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: steps.artifacts.outputs.released == 'true'
         with:
           name: python-dist
           path: packages/python/dist/
           if-no-files-found: error
 
-  # Separate job because a job may declare only one environment, and the job
-  # above is already bound to npm-publish. This one is bound to pypi, which is
-  # the environment registered on the PyPI trusted publisher.
+  # The approval gate lives here, so a reviewer is asked exactly once per real
+  # release rather than once per push to main. npm-publish is also the
+  # environment registered on the npm trusted publisher, alongside this
+  # workflow's filename - changing either breaks OIDC publishing.
   #
-  # Ordering caveat: the git tag, the GitHub release and the npm publish have
-  # all already happened by the time this runs. A failure here leaves a release
-  # that exists on npm but not on PyPI - rerun this job once the cause is fixed
-  # rather than cutting a new version.
-  pypi:
+  # Ordering caveat: the git tag and the GitHub release already exist by the
+  # time this runs. A failure here leaves a tagged release that is not on npm -
+  # rerun this job once the cause is fixed rather than cutting a new version.
+  npm-publish:
     needs: release
-    if: needs.release.outputs.python-dist == 'true'
+    if: needs.release.outputs.released == 'true'
+    runs-on: ubuntu-latest
+    environment: npm-publish
+    permissions:
+      id-token: write # OIDC for npm trusted publishing and provenance
+    steps:
+      # registry-url points npm at the public registry. NODE_AUTH_TOKEN is
+      # deliberately never set: any token in the environment makes npm fall
+      # back to the legacy token flow instead of OIDC trusted publishing.
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+          package-manager-cache: false
+
+      # Trusted publishing needs npm >= 11.5.1.
+      - run: npm install -g npm@12
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: npm-dist
+          path: dist/
+
+      # Publishes the exact tarball semantic-release packed, so the artifact on
+      # npm matches the one the release job built and tested. Credentials are
+      # deliberately absent: npm mints a short-lived OIDC token and the registry
+      # verifies it against the trusted publisher registered for the package.
+      - name: Publish to npm
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          tarballs=(dist/*.tgz)
+          if [ "${#tarballs[@]}" -ne 1 ]; then
+            echo "Expected exactly one tarball, found ${#tarballs[@]}: ${tarballs[*]-none}" >&2
+            exit 1
+          fi
+          npm publish "${tarballs[0]}"
+
+  # Chained behind npm-publish rather than behind release: with the approval
+  # gate moved off the release job, running this in parallel would push the
+  # version to PyPI while npm was still waiting for a reviewer. Keeping them in
+  # series means one approval releases both registries, in a fixed order.
+  #
+  # Same ordering caveat as above - rerun this job on failure rather than
+  # cutting a new version.
+  pypi:
+    needs: [release, npm-publish]
+    if: needs.release.outputs.released == 'true'
     runs-on: ubuntu-latest
     environment: pypi
     permissions:

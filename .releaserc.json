@@ -35,6 +35,12 @@
         "pkgRoot": "packages/node"
       }
     ],
-    "@semantic-release/github"
+    [
+      "@semantic-release/github",
+      {
+        "labels": false,
+        "releasedLabels": false
+      }
+    ]
   ]
 }

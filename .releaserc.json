@@ -32,7 +32,9 @@
     [
       "@semantic-release/npm",
       {
-        "pkgRoot": "packages/node"
+        "pkgRoot": "packages/node",
+        "npmPublish": false,
+        "tarballDir": "dist"
       }
     ],
     [

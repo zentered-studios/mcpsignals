@@ -45,3 +45,42 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: npx commitlint --from "$BASE_SHA" --to "$HEAD_SHA" --verbose
+
+  # Ruff runs once, not per interpreter: formatting and lint findings do not
+  # vary by runtime, and target-version in ruff.toml already pins the syntax
+  # level to the oldest supported Python.
+  python-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+
+      # Only the dev group is needed - ruff never imports the package, so this
+      # skips installing mcpsignals and its runtime dependencies.
+      - run: uv venv --python 3.13
+      - run: uv pip install --group packages/python/pyproject.toml:dev
+
+      - run: .venv/bin/ruff format --check .
+      - run: .venv/bin/ruff check .
+
+  python-test:
+    runs-on: ubuntu-latest
+    strategy:
+      # Report every failing interpreter, not just the first one to fall over.
+      fail-fast: false
+      matrix:
+        # The ends of the range declared by requires-python. The middle versions
+        # are covered by the classifiers but not worth the CI minutes here.
+        python-version: ["3.10", "3.13"]
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+
+      - run: uv venv --python ${{ matrix.python-version }}
+      - run: uv pip install -e ./packages/python --group packages/python/pyproject.toml:dev
+
+      # -c points pytest at the package's config so asyncio_mode = "auto" and
+      # rootdir resolve correctly while still running from the repo root.
+      - run: .venv/bin/pytest packages/python/tests -c packages/python/pyproject.toml

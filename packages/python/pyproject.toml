@@ -29,6 +29,16 @@ otlp = ["opentelemetry-api>=1.20"]
 Homepage = "https://github.com/mcpsignals/mcpsignals"
 Repository = "https://github.com/mcpsignals/mcpsignals"
 
+# Not an optional-dependencies extra: dev tooling should not be installable by
+# consumers as `pip install mcpsignals[dev]`. PEP 735 groups stay out of the
+# published metadata entirely.
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24", # required by asyncio_mode = "auto" below
+    "ruff>=0.15,<0.16",     # single source of truth for the version CI uses
+]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/mcpsignals"]
 

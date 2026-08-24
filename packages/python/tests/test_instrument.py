@@ -3,6 +3,7 @@ import asyncio
 import pytest
 from mcp.client.client import Client
 from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import Implementation
 from mcpsignals import instrument
 from mcpsignals.events import ToolCallEvent
@@ -63,11 +64,17 @@ async def test_success_path_records_event():
 
 @pytest.mark.asyncio
 async def test_error_path_raised_exception_records_failure():
+    # ToolError (not a bare exception) is what the mcp SDK requires for an
+    # anticipated failure's message to reach the client at all: a bare
+    # exception is treated as a crash and the client only ever sees
+    # "Error executing tool <name>", with the original text withheld -
+    # verified against the installed mcp package's
+    # mcp/server/mcpserver/exceptions.py docstrings.
     server, sink = build_server()
 
     @server.tool()
     def boom() -> str:
-        raise ValueError("record with that id was not found")
+        raise ToolError("record with that id was not found")
 
     async with Client(server) as client:
         result = await client.call_tool("boom", {})
@@ -79,6 +86,29 @@ async def test_error_path_raised_exception_records_failure():
     assert event.success is False
     assert event.error_kind == "not_found"
     assert "not found" in event.error_message
+
+
+@pytest.mark.asyncio
+async def test_error_path_unanticipated_crash_withholds_message():
+    # A bare exception (as opposed to ToolError above) is an unanticipated
+    # crash: the SDK deliberately withholds its message from the client, so
+    # classify_error has nothing to match and falls back to "internal".
+    server, sink = build_server()
+
+    @server.tool()
+    def boom() -> str:
+        raise ValueError("record with that id was not found")
+
+    async with Client(server) as client:
+        result = await client.call_tool("boom", {})
+        await asyncio.sleep(0.05)
+
+    assert result.is_error
+    assert len(sink.events) == 1
+    event = sink.events[0]
+    assert event.success is False
+    assert event.error_kind == "internal"
+    assert "not found" not in event.error_message
 
 
 @pytest.mark.asyncio

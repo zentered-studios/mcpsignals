@@ -135,6 +135,13 @@ interval, whichever comes first, plus a best-effort flush on shutdown. A
 sink that throws is caught, logged once, and otherwise ignored: a failing
 warehouse write never breaks a tool call and never delays a tool response.
 
+That interval/shutdown-flush pattern assumes a long-lived process. On a
+request-scoped, isolate-based runtime like Cloudflare Workers, neither is
+reliable - see the Node.js package README's
+["Request-scoped runtimes"](packages/node/README.md#request-scoped-runtimes-cloudflare-workers)
+section for the manual-flush pattern (`flushIntervalMs: null` plus
+`ctx.waitUntil(flush())`).
+
 ## Intent capture
 
 Optional, off by default. When enabled, the library adds `session_id`,

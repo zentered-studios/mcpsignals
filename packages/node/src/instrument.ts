@@ -30,7 +30,20 @@ export interface InstrumentOptions {
     | undefined
     | Promise<{ userId?: string; orgId?: string } | undefined>;
   bufferSize?: number;
-  flushIntervalMs?: number;
+  /** Pass `null` for manual mode: no interval timer, no `beforeExit` listener — flush explicitly via the returned handle's `flush()`. */
+  flushIntervalMs?: number | null;
+}
+
+/**
+ * Returned by `instrument()`. `server` is the same instance passed in
+ * (instrumentation mutates it in place); use the handle's `server` rather
+ * than your own pre-instrument reference so a future non-mutating
+ * implementation doesn't silently drop instrumentation under you.
+ */
+export interface InstrumentHandle {
+  server: McpServer;
+  /** Flushes any buffered events immediately. On a request-scoped runtime (e.g. Cloudflare Workers), call this via `ctx.waitUntil(handle.flush())` before returning the response. */
+  flush(): Promise<void>;
 }
 
 interface ToolCallContext {
@@ -70,7 +83,7 @@ function extractErrorMessage(result: ToolResultLike): string | null {
  * from the real tool handler is re-thrown unchanged; this wrapper only
  * observes it.
  */
-export function instrument(server: McpServer, options: InstrumentOptions): McpServer {
+export function instrument(server: McpServer, options: InstrumentOptions): InstrumentHandle {
   const buffer = new EventBuffer({
     sinks: options.sinks,
     bufferSize: options.bufferSize,
@@ -185,5 +198,5 @@ export function instrument(server: McpServer, options: InstrumentOptions): McpSe
     );
   }) as typeof server.registerTool;
 
-  return server;
+  return { server, flush: () => buffer.flush() };
 }

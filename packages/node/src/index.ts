@@ -1,5 +1,5 @@
 export { instrument } from './instrument.js';
-export type { InstrumentOptions } from './instrument.js';
+export type { InstrumentOptions, InstrumentHandle } from './instrument.js';
 
 export { EventBuffer } from './buffer.js';
 

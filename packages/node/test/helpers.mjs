@@ -15,7 +15,7 @@ export function createInstrumentedServer(instrumentOptions = {}) {
   const capturingSink = { write: async batch => void events.push(...batch) };
 
   const server = new McpServer({ name: 'test-server', version: '1.0.0' });
-  instrument(server, {
+  const handle = instrument(server, {
     serverName: 'test-server',
     serverVersion: '1.0.0',
     sinks: [capturingSink],
@@ -23,7 +23,7 @@ export function createInstrumentedServer(instrumentOptions = {}) {
     ...instrumentOptions
   });
 
-  return { server, events };
+  return { server, events, flush: handle.flush };
 }
 
 export async function connectClient(server) {

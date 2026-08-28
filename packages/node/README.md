@@ -53,6 +53,46 @@ instrument(server, {
 See the root README's redaction section before enabling `redaction.allow`
 to record real argument values.
 
+## Request-scoped runtimes (Cloudflare Workers)
+
+`instrument()` returns a handle: `{ server, flush(): Promise<void> }`. On a
+long-lived Node process, ignore it - the interval timer and the
+`beforeExit` listener flush for you. On a request-scoped, isolate-based
+runtime, neither of those is reliable: the isolate can be evicted the
+instant the response is sent, with no guarantee a `setInterval` fires again
+before that happens, and `process`'s `beforeExit` doesn't correspond to "this
+invocation is ending" outside Node.
+
+Pass `flushIntervalMs: null` to disable the timer and the `beforeExit`
+listener entirely, construct the server fresh per request (the correct
+pattern here regardless, so a module-scope server doesn't close over one
+request's auth context), and flush explicitly via `ctx.waitUntil()` before
+returning:
+
+```ts
+import { McpServer } from '@modelcontextprotocol/server';
+import { instrument, consoleSink } from 'mcpsignals';
+
+export default {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext) {
+    const server = new McpServer({ name: 'my-server', version: '1.0.0' });
+    const { flush } = instrument(server, {
+      serverName: 'my-server',
+      sinks: [consoleSink()],
+      flushIntervalMs: null // manual mode: no timer, no beforeExit listener
+    });
+
+    server.registerTool(/* ...as normal... */);
+
+    // ...connect server to your transport, handle the request, and get a response...
+    const response = await handleRequest(request, server);
+
+    ctx.waitUntil(flush());
+    return response;
+  }
+};
+```
+
 ## Sinks
 
 ```ts

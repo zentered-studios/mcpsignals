@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { z } from 'zod';
+import { McpServer } from '@modelcontextprotocol/server';
+import { instrument } from '../dist/index.mjs';
 import { createInstrumentedServer, connectClient } from './helpers.mjs';
 
 test('success path: records a tool_call event with the right shape', async () => {
@@ -32,6 +34,39 @@ test('success path: records a tool_call event with the right shape', async () =>
   assert.ok(event.request_bytes > 0);
   assert.ok(event.response_bytes > 0);
   assert.equal(event.arguments, null); // captureArguments defaults to false
+});
+
+test('flush handle: instrument() returns { server, flush } and flush() delivers buffered events immediately', async () => {
+  const events = [];
+  const capturingSink = { write: async batch => void events.push(...batch) };
+  const server = new McpServer({ name: 'test-server', version: '1.0.0' });
+  const handle = instrument(server, {
+    serverName: 'test-server',
+    sinks: [capturingSink],
+    bufferSize: 100, // high enough that a tool call alone never triggers an auto-flush
+    flushIntervalMs: null // manual mode: only handle.flush() delivers events
+  });
+  assert.equal(handle.server, server);
+
+  server.registerTool(
+    'add',
+    { inputSchema: z.object({ a: z.number(), b: z.number() }) },
+    async ({ a, b }) => ({
+      content: [{ type: 'text', text: String(a + b) }]
+    })
+  );
+  const client = await connectClient(server);
+
+  await client.callTool({ name: 'add', arguments: { a: 2, b: 3 } });
+  assert.equal(
+    events.length,
+    0,
+    'nothing should be flushed yet: below bufferSize, no interval, flush() not called'
+  );
+
+  await handle.flush();
+  assert.equal(events.length, 1);
+  assert.equal(events[0].tool_name, 'add');
 });
 
 test('error path: a thrown error is unchanged for the caller and recorded as a failed event', async () => {

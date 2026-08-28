@@ -79,6 +79,87 @@ test('a throwing sink is caught, logged at most once, and never propagates', asy
   }
 });
 
+test('manual mode: flushIntervalMs null never auto-flushes on any interval', t => {
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  const written = [];
+  const sink = { write: async batch => void written.push(...batch) };
+  const buffer = new EventBuffer({ sinks: [sink], bufferSize: 100, flushIntervalMs: null });
+
+  buffer.push(makeEvent(1));
+  t.mock.timers.tick(10 * 60 * 1000); // far past the default 5s interval
+  assert.equal(written.length, 0, 'manual mode must not schedule any interval');
+
+  buffer.stop();
+});
+
+test('manual mode: flushIntervalMs null flushes only when flush() is called explicitly', async () => {
+  const written = [];
+  const sink = { write: async batch => void written.push(...batch) };
+  const buffer = new EventBuffer({ sinks: [sink], bufferSize: 100, flushIntervalMs: null });
+
+  buffer.push(makeEvent(1));
+  await buffer.flush();
+  assert.equal(written.length, 1);
+
+  buffer.stop();
+});
+
+test('manual mode: flush() awaits a size-triggered auto-flush already in flight, not just its own (possibly empty) batch', async () => {
+  const written = [];
+  let resolveWrite;
+  const sink = {
+    write: batch =>
+      new Promise(resolve => {
+        resolveWrite = () => {
+          written.push(...batch);
+          resolve();
+        };
+      })
+  };
+  // bufferSize 1: the very first push() triggers push()'s own fire-and-forget
+  // `void this.flush()` before the caller ever calls flush() itself.
+  const buffer = new EventBuffer({ sinks: [sink], bufferSize: 1, flushIntervalMs: null });
+
+  buffer.push(makeEvent(1));
+  // The queue is already empty by the time we call flush() ourselves - a naive
+  // "return early if the queue is empty" implementation would resolve here
+  // immediately, before the sink write (still pending on resolveWrite) lands.
+  const flushed = buffer.flush();
+  let settled = false;
+  flushed.then(() => void (settled = true));
+
+  await Promise.resolve(); // let microtasks run without resolving the write
+  assert.equal(settled, false, 'flush() must not resolve while the in-flight write is pending');
+
+  resolveWrite();
+  await flushed;
+  assert.equal(
+    written.length,
+    1,
+    'the in-flight write must have completed by the time flush() resolves'
+  );
+
+  buffer.stop();
+});
+
+test('manual mode: flushIntervalMs null registers no beforeExit listener', () => {
+  const before = process.listenerCount('beforeExit');
+  const buffer = new EventBuffer({
+    sinks: [{ write: async () => {} }],
+    flushIntervalMs: null
+  });
+  assert.equal(process.listenerCount('beforeExit'), before);
+  buffer.stop();
+});
+
+test('default mode still registers a beforeExit listener, removed by stop()', () => {
+  const before = process.listenerCount('beforeExit');
+  const buffer = new EventBuffer({ sinks: [{ write: async () => {} }], flushIntervalMs: 60_000 });
+  assert.equal(process.listenerCount('beforeExit'), before + 1);
+  buffer.stop();
+  assert.equal(process.listenerCount('beforeExit'), before);
+});
+
 test('one sink failing does not block another sink from receiving the batch', async () => {
   const goodSinkEvents = [];
   const failingSink = {

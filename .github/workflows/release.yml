@@ -146,12 +146,12 @@ jobs:
           npm publish "./${tarballs[0]}"
 
   # Runs in parallel with npm-publish (both depend only on release) rather than
-  # chained behind it: pypi has no approval gate of its own, so waiting on
-  # npm-publish's reviewer would just delay a PyPI publish that's already
-  # ready. Tradeoff: if npm-publish fails or is rejected after pypi has
-  # already published, the two registries end up out of sync for that
-  # version - same ordering caveat as npm-publish, rerun the failed job rather
-  # than cutting a new version.
+  # chained behind it: each has its own required-reviewer gate on its
+  # environment (npm-publish, pypi), so chaining them would just make one
+  # approval wait on the other for no reason. Tradeoff: if one publish fails
+  # or is rejected after the other has already published, the two registries
+  # end up out of sync for that version - same ordering caveat as
+  # npm-publish, rerun the failed job rather than cutting a new version.
   pypi:
     needs: release
     if: needs.release.outputs.released == 'true'

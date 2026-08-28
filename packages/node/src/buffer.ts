@@ -33,7 +33,16 @@ export class EventBuffer {
   private queue: AnyEvent[] = [];
   private readonly warned = new WeakSet<Sink>();
   private readonly timer?: NodeJS.Timeout;
-  private readonly manual: boolean;
+  // Chains every flush's write so `flush()` always waits for the ones ahead
+  // of it, not just for its own batch. Without this, the size-triggered
+  // `void this.flush()` in `push()` is fire-and-forget: a caller who awaits
+  // a *later* `flush()` call (e.g. `ctx.waitUntil(handle.flush())` on
+  // Workers, right before returning the response) can see an already-empty
+  // queue and resolve immediately, while the earlier batch's sink write is
+  // still in flight — on an isolate-based runtime that write can then be cut
+  // off before it lands. Chaining onto `pending` makes every `flush()` call
+  // resolve only once every write started before it has settled.
+  private pending: Promise<void> = Promise.resolve();
   private readonly onBeforeExit = () => {
     void this.flush();
   };
@@ -41,9 +50,9 @@ export class EventBuffer {
   constructor(options: EventBufferOptions) {
     this.sinks = options.sinks;
     this.bufferSize = options.bufferSize ?? DEFAULT_BUFFER_SIZE;
-    this.manual = options.flushIntervalMs === null;
+    const manual = options.flushIntervalMs === null;
 
-    if (!this.manual) {
+    if (!manual) {
       const flushIntervalMs = options.flushIntervalMs ?? DEFAULT_FLUSH_INTERVAL_MS;
 
       this.timer = setInterval(() => {
@@ -62,11 +71,17 @@ export class EventBuffer {
     }
   }
 
-  async flush(): Promise<void> {
-    if (this.queue.length === 0) return;
+  flush(): Promise<void> {
+    if (this.queue.length === 0) return this.pending;
     const batch = this.queue;
     this.queue = [];
 
+    const write = this.writeBatch(batch);
+    this.pending = this.pending.then(() => write);
+    return this.pending;
+  }
+
+  private async writeBatch(batch: AnyEvent[]): Promise<void> {
     await Promise.allSettled(
       this.sinks.map(async sink => {
         try {

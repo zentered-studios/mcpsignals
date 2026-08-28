@@ -70,7 +70,7 @@ request's auth context), and flush explicitly via `ctx.waitUntil()` before
 returning:
 
 ```ts
-import { McpServer, InMemoryTransport } from '@modelcontextprotocol/server';
+import { McpServer } from '@modelcontextprotocol/server';
 import { instrument, consoleSink } from 'mcpsignals';
 
 export default {
@@ -84,7 +84,8 @@ export default {
 
     server.registerTool(/* ...as normal... */);
 
-    // ...connect server to your transport and handle the request...
+    // ...connect server to your transport, handle the request, and get a response...
+    const response = await handleRequest(request, server);
 
     ctx.waitUntil(flush());
     return response;

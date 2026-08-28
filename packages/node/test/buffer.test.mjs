@@ -79,6 +79,49 @@ test('a throwing sink is caught, logged at most once, and never propagates', asy
   }
 });
 
+test('manual mode: flushIntervalMs null never auto-flushes on any interval', t => {
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  const written = [];
+  const sink = { write: async batch => void written.push(...batch) };
+  const buffer = new EventBuffer({ sinks: [sink], bufferSize: 100, flushIntervalMs: null });
+
+  buffer.push(makeEvent(1));
+  t.mock.timers.tick(10 * 60 * 1000); // far past the default 5s interval
+  assert.equal(written.length, 0, 'manual mode must not schedule any interval');
+
+  buffer.stop();
+});
+
+test('manual mode: flushIntervalMs null flushes only when flush() is called explicitly', async () => {
+  const written = [];
+  const sink = { write: async batch => void written.push(...batch) };
+  const buffer = new EventBuffer({ sinks: [sink], bufferSize: 100, flushIntervalMs: null });
+
+  buffer.push(makeEvent(1));
+  await buffer.flush();
+  assert.equal(written.length, 1);
+
+  buffer.stop();
+});
+
+test('manual mode: flushIntervalMs null registers no beforeExit listener', () => {
+  const before = process.listenerCount('beforeExit');
+  const buffer = new EventBuffer({
+    sinks: [{ write: async () => {} }],
+    flushIntervalMs: null
+  });
+  assert.equal(process.listenerCount('beforeExit'), before);
+  buffer.stop();
+});
+
+test('default mode still registers a beforeExit listener, removed by stop()', () => {
+  const before = process.listenerCount('beforeExit');
+  const buffer = new EventBuffer({ sinks: [{ write: async () => {} }], flushIntervalMs: 60_000 });
+  assert.equal(process.listenerCount('beforeExit'), before + 1);
+  buffer.stop();
+  assert.equal(process.listenerCount('beforeExit'), before);
+});
+
 test('one sink failing does not block another sink from receiving the batch', async () => {
   const goodSinkEvents = [];
   const failingSink = {

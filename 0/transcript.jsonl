@@ -1,0 +1,5 @@
+{"v":1,"agent":"claude-code","cli_version":"0.10.4","type":"user","ts":"2026-08-20T20:47:30.501Z","content":[{"id":"604c36f3-0e4c-49b5-9b0d-0be66213df28","text":"hello"}]}
+{"v":1,"agent":"claude-code","cli_version":"0.10.4","type":"assistant","ts":"2026-08-20T20:47:33.195Z","id":"msg_011CeEf3GbYKABdwMvTCpmEy","input_tokens":2,"output_tokens":47,"content":[{"text":"Hello! I'm in `/Users/patrick/Sites/mcpsignals` (not a git repo yet). What would you like to work on?","type":"text"}]}
+{"v":1,"agent":"claude-code","cli_version":"0.10.4","type":"user","ts":"2026-08-20T20:47:39.077Z","content":[{"id":"08d4c5fb-837e-4292-89e6-8e315bceeb91","text":""}]}
+{"v":1,"agent":"claude-code","cli_version":"0.10.4","type":"user","ts":"2026-08-20T20:47:39.076Z","content":[{"id":"08d4c5fb-837e-4292-89e6-8e315bceeb91","text":""}]}
+{"v":1,"agent":"claude-code","cli_version":"0.10.4","type":"user","ts":"2026-08-20T20:47:39.076Z","content":[{"id":"08d4c5fb-837e-4292-89e6-8e315bceeb91","text":""}]}

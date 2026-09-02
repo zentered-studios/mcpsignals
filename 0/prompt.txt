@@ -1,0 +1,1 @@
+why does the "release" workflow trigger on branch push, instead of release/tag creation?

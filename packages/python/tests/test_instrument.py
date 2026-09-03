@@ -7,6 +7,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import Implementation
 from mcpsignals import instrument
 from mcpsignals.events import ToolCallEvent
+from mcpsignals.intent_capture import MAX_IDENTIFIER_LENGTH, MAX_INTENT_LENGTH
 
 
 class RecordingSink:
@@ -215,6 +216,32 @@ async def test_intent_capture_injects_schema_and_strips_before_handler():
     assert event.session_id == "sess-1"
     assert event.agent_id == "agent-1"
     assert event.intent == "user asked"
+
+
+@pytest.mark.asyncio
+async def test_intent_capture_truncates_oversized_values_before_the_sink():
+    server, sink = build_server(intent_capture=True)
+
+    @server.tool()
+    def search(query: str) -> str:
+        return query
+
+    async with Client(server) as client:
+        await client.call_tool(
+            "search",
+            {
+                "query": "mugs",
+                "session_id": "s" * 5000,
+                "agent_id": "a" * 5000,
+                "intent": "i" * 5000,
+            },
+        )
+        await asyncio.sleep(0.05)
+
+    event = sink.events[0]
+    assert event.session_id == "s" * MAX_IDENTIFIER_LENGTH
+    assert event.agent_id == "a" * MAX_IDENTIFIER_LENGTH
+    assert event.intent == "i" * MAX_INTENT_LENGTH
 
 
 @pytest.mark.asyncio

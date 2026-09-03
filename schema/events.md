@@ -24,8 +24,8 @@ One row per tool invocation.
 | `server_name` | string | no | The MCP server's advertised name. |
 | `server_version` | string | yes | The MCP server's advertised version. |
 | `tool_name` | string | no | |
-| `session_id` | string | yes | Groups calls into one task. Only present where the transport exposes a session concept. |
-| `agent_id` | string | yes | Distinguishes parallel agents sharing a session. Only present if the host or intent-capture supplies one. |
+| `session_id` | string | yes | Groups calls into one task. Only present where the transport exposes a session concept. Truncated to 128 chars when it comes from intent capture. |
+| `agent_id` | string | yes | Distinguishes parallel agents sharing a session. Only present if the host or intent-capture supplies one. Truncated to 128 chars when it comes from intent capture. |
 | `client_name` | string | yes | From the MCP `initialize` handshake. |
 | `client_version` | string | yes | From the MCP `initialize` handshake. |
 | `user_id` | string | yes | The host application supplies this. The library never invents or infers it. |
@@ -37,7 +37,7 @@ One row per tool invocation.
 | `request_bytes` | integer | no | `byteLength` of the serialized tool arguments as sent to the handler, before injected intent-capture parameters are stripped. |
 | `response_bytes` | integer | no | `byteLength` of the serialized tool result. |
 | `arguments` | json | yes | The tool call's arguments. Null unless argument capture is explicitly enabled. Subject to redaction - see the redaction section of the top-level README. |
-| `intent` | string | yes | The calling agent's stated reason for the call. Only present when intent capture is enabled for this tool. |
+| `intent` | string | yes | The calling agent's stated reason for the call. Only present when intent capture is enabled for this tool. Truncated to 2000 chars. |
 | `transport` | string | yes | `stdio`, `http`, or whatever the SDK reports. Null if the SDK does not expose it. |
 
 ### `error_kind` is a heuristic, not a structured code

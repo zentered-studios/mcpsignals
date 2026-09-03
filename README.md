@@ -154,6 +154,13 @@ It costs tokens on every tool schema, and models sometimes ignore the field
 or invent a plausible-sounding reason. Turn it on only if "why did the agent
 call this" is a question you need answered.
 
+All three values are caller-controlled, so the library bounds them before
+they reach any sink: `intent` is truncated to 2000 chars (the same cap as
+`error_message`), `session_id` and `agent_id` to 128. A non-string value is
+recorded as null. This holds for every sink, including your own - an
+oversized value can't fail a batched write and take an entire flush of
+unrelated events with it.
+
 ## What this is not
 
 - Not a dashboard or a chart. Point your own BI tool at the warehouse.

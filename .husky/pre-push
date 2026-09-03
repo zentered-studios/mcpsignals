@@ -1,0 +1,2 @@
+# Entire CLI: push session logs alongside the user's push ($1 is the remote name)
+if command -v entire >/dev/null 2>&1; then entire hooks git pre-push "$1"; else :; fi

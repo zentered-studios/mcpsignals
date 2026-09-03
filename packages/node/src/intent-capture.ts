@@ -79,7 +79,17 @@ export const MAX_IDENTIFIER_LENGTH = 128;
 
 function boundedString(value: unknown, maxLength: number): string | null {
   if (typeof value !== 'string') return null;
-  return value.length > maxLength ? value.slice(0, maxLength) : value;
+  if (value.length <= maxLength) return value;
+  // slice() counts UTF-16 code units, so a naive cut at maxLength can land
+  // between the two units of a surrogate pair (e.g. an emoji) and leave a
+  // lone surrogate in the result - invalid UTF-16 that some UTF-8 encoders
+  // (e.g. node-postgres) reject outright, which would make the value fail
+  // the very sink write this bound exists to protect. Back the cut off by
+  // one unit when it would split a pair.
+  let end = maxLength;
+  const code = value.charCodeAt(end - 1);
+  if (code >= 0xd800 && code <= 0xdbff) end -= 1;
+  return value.slice(0, end);
 }
 
 export interface ExtractedIntent {

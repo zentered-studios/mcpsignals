@@ -93,6 +93,37 @@ export default {
 };
 ```
 
+### Known limitation: `client_name`/`client_version` will be null
+
+This pattern - a fresh `McpServer` per request - has a consequence worth
+knowing about up front: `client_name`/`client_version` on every `tool_call`
+event will be `null`, for every caller, on every request.
+
+The library reads client identity via `server.getClientVersion()`, which
+only returns a value once that specific `McpServer` instance has processed
+an `initialize` request and the SDK has stored the client's `clientInfo` on
+it. But `initialize` and a later `tools/call` are two separate HTTP
+requests, each getting its own fresh `McpServer` per the pattern above - so
+the instance handling `tools/call` never itself saw `initialize`, and
+`getClientVersion()` has nothing to return. This isn't a Node-only or
+Workers-only quirk of the SDK you can configure around; it falls directly
+out of "construct the server fresh per request," which this section
+recommends as the correct pattern regardless of the runtime.
+
+If you need `client_name`/`client_version` populated in this shape, read
+`clientInfo` off the raw JSON-RPC `initialize` request yourself, before it
+ever reaches the SDK or `instrument()`, and persist it somewhere your
+`tools/call` handler can read it back by whatever identity you already
+have for the caller (an account id, an API key, a DID - whatever your auth
+layer resolves). Then pass it through as a fallback wherever you build your
+own event/row from the library's output, for every event where the
+library-observed `client_name`/`client_version` is null. `instrument()`
+itself has no option for this - there is no per-connection state on a
+request-scoped runtime for it to hang the value off, so the SDK's own
+capture mechanism is fundamentally unavailable here, not just failing to be
+configured. Storage and fallback are entirely your application's concern,
+independent of this library.
+
 ## Sinks
 
 ```ts

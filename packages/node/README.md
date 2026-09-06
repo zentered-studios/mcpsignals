@@ -99,10 +99,12 @@ This pattern - a fresh `McpServer` per request - has a consequence worth
 knowing about up front: `client_name`/`client_version` on every `tool_call`
 event will be `null`, for every caller, on every request.
 
-The library reads client identity via `server.getClientVersion()`, which
-only returns a value once that specific `McpServer` instance has processed
-an `initialize` request and the SDK has stored the client's `clientInfo` on
-it. But `initialize` and a later `tools/call` are two separate HTTP
+The library reads client identity via `server.server.getClientVersion()`
+(the low-level `Server` instance underneath `McpServer`, exposed via its
+`.server` property), which only returns a value once that specific
+`McpServer` instance has processed an `initialize` request and the SDK has
+stored the client's `clientInfo` on it. But `initialize` and a later
+`tools/call` are two separate HTTP
 requests, each getting its own fresh `McpServer` per the pattern above - so
 the instance handling `tools/call` never itself saw `initialize`, and
 `getClientVersion()` has nothing to return. This isn't a Node-only or

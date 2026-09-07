@@ -114,21 +114,26 @@ mean "record everything":
 | console | `consoleSink()` | `ConsoleSink()` | none |
 | Postgres | `postgresSink()` | `PostgresSink()` | `pg` v8 / `mcpsignals[postgres]` |
 | BigQuery | `bigquerySink()` | `BigQuerySink()` | `@google-cloud/bigquery` v7 / `mcpsignals[bigquery]` |
+| D1 | `d1Sink()` | - | none (takes a `D1Database` binding directly) |
 | OTLP | `otlpSink()` | `OtlpSink()` | `@opentelemetry/api` v1 / `mcpsignals[otlp]` |
 
 Node.js imports these from `mcpsignals`, Python from `mcpsignals.sinks`;
 install only the dependency for the sink you use. `console` writes JSON
 lines to stdout and is what Python uses when you pass no `sinks` at all.
-Postgres and BigQuery write the tables in
+Postgres, BigQuery, and D1 write the tables in
 [`schema/events.md`](schema/events.md). OTLP emits one span per tool call
 using whatever `TracerProvider` your app already configured (standard OTel
-zero-code pattern - this sink does not manage its own exporter).
+zero-code pattern - this sink does not manage its own exporter). D1 is
+Node-only: the Python package has no Cloudflare Workers story, and D1 is
+only reachable from a Worker.
 
 Credentials come from each sink's own SDK defaults and environment
 (`PGHOST`, Application Default Credentials, `OTEL_EXPORTER_OTLP_ENDPOINT`),
 so there's no config file format to learn:
 [`docs/environment-variables.md`](docs/environment-variables.md),
-[`docs/bigquery.md`](docs/bigquery.md).
+[`docs/bigquery.md`](docs/bigquery.md). D1 takes its `D1Database` binding
+directly instead, since the binding is already authenticated - see the
+Node.js package README's [D1 section](packages/node/README.md#d1).
 
 Events are buffered in memory and flushed on a size threshold or an
 interval, whichever comes first, plus a best-effort flush on shutdown. A

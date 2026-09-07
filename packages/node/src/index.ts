@@ -8,6 +8,8 @@ export { postgresSink } from './sinks/postgres.js';
 export type { PostgresSinkOptions } from './sinks/postgres.js';
 export { bigquerySink } from './sinks/bigquery.js';
 export type { BigQuerySinkOptions } from './sinks/bigquery.js';
+export { d1Sink } from './sinks/d1.js';
+export type { D1SinkOptions } from './sinks/d1.js';
 export { otlpSink } from './sinks/otlp.js';
 export type { Sink } from './sinks/types.js';
 

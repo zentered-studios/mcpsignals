@@ -13,6 +13,26 @@ from typing import Any
 
 INJECTED_KEYS = ("session_id", "agent_id", "intent")
 
+# Length caps on the three values the calling agent supplies. Without them
+# these are the only unbounded caller-controlled strings on an event, and a
+# sink that batches writes in a transaction (Cloudflare D1's `batch()`, for
+# one) loses every unrelated event in the flush when one oversized value fails
+# its statement. Capping here rather than in each sink means every sink,
+# including third-party and future ones, inherits the bound.
+#
+# `intent` is prose and takes the same 2000 as `error_message`.
+# `session_id`/`agent_id` are identifiers - a UUID is 36 chars - so they take a
+# much tighter cap. Oversized values are truncated rather than dropped: losing
+# the tail of an id is cheaper than losing the event.
+MAX_INTENT_LENGTH = 2000
+MAX_IDENTIFIER_LENGTH = 128
+
+_MAX_LENGTHS = {
+    "session_id": MAX_IDENTIFIER_LENGTH,
+    "agent_id": MAX_IDENTIFIER_LENGTH,
+    "intent": MAX_INTENT_LENGTH,
+}
+
 _INJECTED_PROPERTIES = {
     "session_id": {
         "type": "string",
@@ -49,14 +69,24 @@ def inject_schema(input_schema: dict[str, Any] | None) -> dict[str, Any]:
     return schema
 
 
+def _bounded(value: Any, max_length: int) -> str | None:
+    # A caller can send any JSON type for these keys. Anything that isn't a
+    # string can't be length-bounded, so it's dropped rather than forwarded
+    # into an event field typed `str | None`.
+    if not isinstance(value, str):
+        return None
+    return value[:max_length]
+
+
 def strip_injected(
     arguments: Mapping[str, Any] | None,
 ) -> tuple[dict[str, Any], dict[str, str | None]]:
     """Split raw arguments into (clean_arguments, extracted) where
-    `extracted` holds session_id/agent_id/intent (None if absent) and
-    `clean_arguments` has those three keys removed - exactly what the
-    handler would have received without the library.
+    `extracted` holds session_id/agent_id/intent (None if absent, non-string
+    or length-bounded per `_MAX_LENGTHS`) and `clean_arguments` has those
+    three keys removed - exactly what the handler would have received without
+    the library.
     """
     args = dict(arguments) if arguments else {}
-    extracted = {key: args.pop(key, None) for key in INJECTED_KEYS}
+    extracted = {key: _bounded(args.pop(key, None), _MAX_LENGTHS[key]) for key in INJECTED_KEYS}
     return args, extracted

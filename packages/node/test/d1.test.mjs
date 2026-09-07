@@ -176,3 +176,31 @@ test('arguments under the cap are passed through as a JSON string', async () => 
   const argumentsIndex = 16;
   assert.equal(db.batchCalls[0][0].values[argumentsIndex], JSON.stringify({ a: 1 }));
 });
+
+// The D1 docs don't say whether a failed statement inside batch() rejects
+// the promise or resolves with that entry's `success: false` - this fake
+// exercises the resolve-with-failure shape, which the sink must still treat
+// as a failure rather than silently reporting a successful flush.
+test('a batch() that resolves with a failed statement still rejects write()', async () => {
+  const db = {
+    prepare(query) {
+      return {
+        query,
+        bind(...values) {
+          return { query, values };
+        }
+      };
+    },
+    async batch(statements) {
+      return statements.map((_, i) =>
+        i === 0 ? { success: false, error: 'SQLITE_CONSTRAINT' } : { success: true }
+      );
+    }
+  };
+  const sink = d1Sink(db);
+
+  await assert.rejects(
+    () => sink.write([makeToolCallEvent(), makeToolCallEvent({ tool_name: 'other-tool' })]),
+    /SQLITE_CONSTRAINT/
+  );
+});

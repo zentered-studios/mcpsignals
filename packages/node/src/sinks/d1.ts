@@ -10,9 +10,14 @@ interface D1PreparedStatement {
   bind(...values: unknown[]): D1PreparedStatement;
 }
 
+interface D1Result {
+  success: boolean;
+  error?: string;
+}
+
 interface D1Database {
   prepare(query: string): D1PreparedStatement;
-  batch(statements: D1PreparedStatement[]): Promise<unknown>;
+  batch(statements: D1PreparedStatement[]): Promise<D1Result[]>;
 }
 
 // developers.cloudflare.com/d1/platform/limits/: "Maximum string, BLOB or
@@ -46,6 +51,11 @@ const encoder = new TextEncoder();
  * days')` filter silently includes the whole cutoff day. Read `ts` back out
  * with `unixepoch()` / `datetime(ts / 1000, 'unixepoch')`, not `datetime()`
  * on the raw column.
+ *
+ * The D1 docs don't spell out whether a failed statement inside `batch()`
+ * rejects the promise or resolves with that entry's `success: false` -
+ * `write()` checks the returned results either way, so a failure can't be
+ * mistaken for a successful flush.
  */
 export function d1Sink(db: D1Database, options: D1SinkOptions = {}): Sink {
   const toolCallTable = options.toolCallTable ?? 'mcpsignals_tool_call';
@@ -126,7 +136,14 @@ export function d1Sink(db: D1Database, options: D1SinkOptions = {}): Sink {
       });
 
       if (statements.length === 0) return;
-      await db.batch(statements);
+      const results = await db.batch(statements);
+      const failed = results.filter(result => !result.success);
+      if (failed.length > 0) {
+        throw new Error(
+          `[mcpsignals] d1Sink: db.batch() reported ${failed.length} of ${results.length} ` +
+            `statement(s) failed: ${failed.map(result => result.error ?? 'unknown error').join('; ')}`
+        );
+      }
     }
   };
 }

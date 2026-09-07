@@ -90,7 +90,9 @@ sessions; not stateless per-request `http`).
 - Timestamps are always UTC and always sent as native timestamp types to
   sinks that have one (Postgres `timestamptz`, BigQuery `TIMESTAMP`,
   ClickHouse `DateTime64`), not epoch integers or ISO strings, except where
-  the sink's wire format requires a string (OTLP).
+  the sink's wire format requires a string (OTLP) or the target has no
+  native timestamp type (D1/SQLite - written as Unix epoch milliseconds,
+  see the D1 section below for why).
 - `null` means "not applicable or not available," never `"unknown"` as a
   string sentinel and never an empty string.
 

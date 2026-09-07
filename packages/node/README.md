@@ -129,9 +129,52 @@ independent of this library.
 ## Sinks
 
 ```ts
-import { postgresSink, bigquerySink, otlpSink } from 'mcpsignals';
+import { postgresSink, bigquerySink, otlpSink, d1Sink } from 'mcpsignals';
 ```
 
 Each sink pulls credentials from its own client library's usual defaults
 (env vars, Application Default Credentials, or the global OTel
 TracerProvider) - there's no mcpsignals-specific config file.
+
+### D1
+
+`d1Sink(db, options?)` takes a `D1Database` binding directly - there's no
+client library to load credentials from, since the binding is already
+authenticated. Create the tables from `schema/events.md`'s D1 DDL first
+(via `wrangler d1 migrations`, not by hand - see that file for why).
+
+```ts
+import { McpServer } from '@modelcontextprotocol/server';
+import { instrument, d1Sink } from 'mcpsignals';
+
+interface Env {
+  DB: D1Database;
+}
+
+export default {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext) {
+    const server = new McpServer({ name: 'my-server', version: '1.0.0' });
+    const { flush } = instrument(server, {
+      serverName: 'my-server',
+      sinks: [d1Sink(env.DB)],
+      flushIntervalMs: null // manual mode - see "Request-scoped runtimes" above
+    });
+
+    server.registerTool(/* ...as normal... */);
+
+    const response = await handleRequest(request, server);
+
+    ctx.waitUntil(flush());
+    return response;
+  }
+};
+```
+
+`d1Sink` handles the constraints that are easy to miss when hand-rolling a
+D1 sink: `db.batch()` is a transaction (one bad row rolls back the whole
+flush), so an oversized `arguments` payload is dropped rather than left in
+the batch to fail it; and `ts` is written as Unix epoch milliseconds rather
+than an ISO string, because SQLite's `datetime()` output doesn't compare
+correctly against `toISOString()`'s. See the `d1Sink` doc comment
+(`src/sinks/d1.ts`) and `schema/events.md`'s D1 section for the full
+reasoning.

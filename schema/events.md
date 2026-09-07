@@ -189,6 +189,65 @@ partition by date(ts)
 cluster by server_name;
 ```
 
+### D1 (SQLite)
+
+```sql
+create table mcpsignals_tool_call (
+  ts              integer  not null,  -- Unix epoch milliseconds, not ISO text. See the d1Sink doc comment for why.
+  server_name     text     not null,
+  server_version  text,
+  tool_name       text     not null,
+  session_id      text,
+  agent_id        text,
+  client_name     text,
+  client_version  text,
+  user_id         text,
+  org_id          text,
+  duration_ms     integer  not null,
+  success         integer  not null,  -- 0 or 1; SQLite has no boolean type
+  error_kind      text,
+  error_message   text,
+  request_bytes   integer  not null,
+  response_bytes  integer  not null,
+  arguments       text,               -- JSON-encoded; null if absent or oversized, see d1Sink
+  intent          text,
+  transport       text
+);
+
+create index idx_mcpsignals_tool_call_ts on mcpsignals_tool_call (ts);
+create index idx_mcpsignals_tool_call_session_id on mcpsignals_tool_call (session_id);
+create index idx_mcpsignals_tool_call_server_tool on mcpsignals_tool_call (server_name, tool_name);
+
+create table mcpsignals_session_summary (
+  ts                    integer  not null,  -- Unix epoch milliseconds
+  session_id            text     not null,
+  server_name           text     not null,
+  server_version        text,
+  user_id               text,
+  org_id                text,
+  call_count            integer  not null,
+  distinct_tools_used   integer  not null,
+  wall_duration_ms      integer  not null,
+  error_count           integer  not null
+);
+
+create index idx_mcpsignals_session_summary_ts on mcpsignals_session_summary (ts);
+create unique index idx_mcpsignals_session_summary_session_id on mcpsignals_session_summary (session_id);
+```
+
+Create these via `wrangler d1 migrations create <db-name> create_mcpsignals_tables`
+(and `wrangler d1 migrations apply`) rather than a one-off script, so schema
+changes stay migration-tracked the way D1 expects.
+
+Query `ts` back out with `datetime(ts / 1000, 'unixepoch')` or a raw
+millisecond comparison (`ts >= :cutoff_ms`), not `datetime('now', ...)`
+compared directly against `ts` - `ts` is an integer, not SQLite's text
+`datetime()` format, on purpose. An ISO string written via `toISOString()`
+(`"2026-09-01T23:25:24.000Z"`) sorts incorrectly against `datetime()`'s
+output (`"2026-09-01 23:25:24"`): `T` sorts above a space at the same byte
+offset, so a `ts >= datetime('now', '-N days')` filter would silently
+include the whole cutoff day.
+
 ### ClickHouse
 
 ```sql

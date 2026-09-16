@@ -2,12 +2,16 @@
 or an interval, whichever comes first. A sink failure is caught, logged at
 most once per sink instance, and never propagates - a broken sink must
 never break the host MCP server.
+
+Pass `flush_interval_s=None` for manual mode: no interval task, no `atexit`
+hook, the caller flushes explicitly (via `handle_for(server).flush()`).
 """
 
 import asyncio
 import atexit
 import logging
 from collections.abc import Sequence
+from contextlib import suppress
 
 from mcpsignals.events import SessionSummaryEvent, ToolCallEvent
 from mcpsignals.sinks.base import Sink
@@ -22,7 +26,7 @@ class EventBuffer:
         self,
         sinks: Sequence[Sink],
         buffer_size: int = 20,
-        flush_interval_s: float = 5.0,
+        flush_interval_s: float | None = 5.0,
     ):
         self._sinks = list(sinks)
         self._buffer_size = buffer_size
@@ -31,12 +35,17 @@ class EventBuffer:
         self._lock = asyncio.Lock()
         self._warned_sinks: set[int] = set()
         self._interval_task: asyncio.Task | None = None
-        atexit.register(self._atexit_flush)
+        # Manual mode (`flush_interval_s=None`) never starts the interval task
+        # and never registers the atexit hook. `stop()` flips this too, so a
+        # later `add()` cannot silently restart the task.
+        self._stopped = flush_interval_s is None
+        if flush_interval_s is not None:
+            atexit.register(self._atexit_flush)
 
     def _ensure_interval_task(self) -> None:
         # Started lazily on first event, from inside a running event loop -
         # constructing EventBuffer itself must not require a loop to exist yet.
-        if self._interval_task is not None:
+        if self._stopped or self._interval_task is not None:
             return
         try:
             loop = asyncio.get_running_loop()
@@ -46,7 +55,7 @@ class EventBuffer:
 
     async def _interval_loop(self) -> None:
         while True:
-            await asyncio.sleep(self._flush_interval_s)
+            await asyncio.sleep(self._flush_interval_s)  # type: ignore[arg-type]
             await self.flush()
 
     async def add(self, event: Event) -> None:
@@ -63,14 +72,36 @@ class EventBuffer:
                 return
             batch, self._events = self._events, []
 
-        results = await asyncio.gather(
+        # Each _write_to_sink swallows and logs its own failure, so nothing
+        # here needs to inspect the results.
+        await asyncio.gather(
             *(self._write_to_sink(sink, batch) for sink in self._sinks),
             return_exceptions=True,
         )
-        for result in results:
-            if isinstance(result, Exception):
-                # _write_to_sink already logged; nothing else to do here.
-                pass
+
+    def stop(self) -> None:
+        """Cancel the interval task (if one is running) and unregister the
+        atexit hook. Safe to call in manual mode, and safe to call twice.
+        Does not flush: use `close()` for a final flush plus stop.
+        """
+        self._stopped = True
+        if self._interval_task is not None:
+            self._interval_task.cancel()
+            self._interval_task = None
+        # No-op when the hook was never registered (manual mode, or an
+        # earlier stop() already removed it).
+        atexit.unregister(self._atexit_flush)
+
+    async def close(self) -> None:
+        """Final flush, then `stop()`. Waits for the cancelled interval task
+        to settle so nothing is left running on the loop. Idempotent.
+        """
+        await self.flush()
+        task = self._interval_task
+        self.stop()
+        if task is not None:
+            with suppress(asyncio.CancelledError):
+                await task
 
     async def _write_to_sink(self, sink: Sink, batch: list[Event]) -> None:
         try:
@@ -86,13 +117,14 @@ class EventBuffer:
             return
         # Best-effort only: there is no guarantee a loop is available to
         # await a real flush at interpreter shutdown. Callers that need a
-        # guaranteed flush should call `await buffer.flush()` explicitly
-        # before shutting down.
+        # guaranteed flush should `await handle_for(server).flush()` (or
+        # `.close()`) explicitly before shutting down.
         try:
             asyncio.run(self.flush())
         except RuntimeError:
             logger.warning(
                 "mcpsignals: %d buffered event(s) dropped at exit (no event loop available "
-                "to flush) - call `await flush()` explicitly before shutdown for a guarantee",
+                "to flush) - call `await handle_for(server).flush()` explicitly before "
+                "shutdown for a guarantee",
                 len(self._events),
             )

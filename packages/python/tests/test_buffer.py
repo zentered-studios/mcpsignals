@@ -78,3 +78,80 @@ async def test_one_sink_failing_does_not_block_another():
     await buffer.add(make_event("a"))
     assert bad.calls == 1
     assert len(good.batches) == 1
+
+
+@pytest.mark.asyncio
+async def test_manual_mode_starts_no_interval_task_and_registers_no_atexit(monkeypatch):
+    import mcpsignals.buffer as buffer_module
+
+    registered: list = []
+    monkeypatch.setattr(buffer_module.atexit, "register", lambda fn, *a, **k: registered.append(fn))
+
+    sink = RecordingSink()
+    buffer = EventBuffer([sink], buffer_size=100, flush_interval_s=None)
+    await buffer.add(make_event("a"))
+
+    assert buffer._interval_task is None
+    assert registered == []
+    assert sink.batches == []  # nothing flushes on its own in manual mode
+    await buffer.flush()
+    assert len(sink.batches) == 1
+
+
+@pytest.mark.asyncio
+async def test_interval_mode_registers_atexit_once(monkeypatch):
+    import mcpsignals.buffer as buffer_module
+
+    registered: list = []
+    monkeypatch.setattr(buffer_module.atexit, "register", lambda fn, *a, **k: registered.append(fn))
+
+    buffer = EventBuffer([RecordingSink()], buffer_size=100, flush_interval_s=999)
+    assert registered == [buffer._atexit_flush]
+
+
+@pytest.mark.asyncio
+async def test_stop_cancels_interval_task_and_unregisters_atexit(monkeypatch):
+    import mcpsignals.buffer as buffer_module
+
+    unregistered: list = []
+    monkeypatch.setattr(buffer_module.atexit, "unregister", lambda fn: unregistered.append(fn))
+
+    buffer = EventBuffer([RecordingSink()], buffer_size=100, flush_interval_s=999)
+    await buffer.add(make_event("a"))
+    task = buffer._interval_task
+    assert task is not None
+
+    buffer.stop()
+    await asyncio.sleep(0)
+    assert task.cancelled()
+    assert buffer._interval_task is None
+    assert unregistered == [buffer._atexit_flush]
+
+    # A later add() must not silently restart the interval task.
+    await buffer.add(make_event("b"))
+    assert buffer._interval_task is None
+
+
+@pytest.mark.asyncio
+async def test_stop_is_safe_in_manual_mode_and_when_called_twice():
+    buffer = EventBuffer([RecordingSink()], buffer_size=100, flush_interval_s=None)
+    await buffer.add(make_event("a"))
+    buffer.stop()
+    buffer.stop()
+    assert buffer._interval_task is None
+
+
+@pytest.mark.asyncio
+async def test_close_flushes_then_stops():
+    sink = RecordingSink()
+    buffer = EventBuffer([sink], buffer_size=100, flush_interval_s=999)
+    await buffer.add(make_event("a"))
+    task = buffer._interval_task
+
+    await buffer.close()
+    assert len(sink.batches) == 1
+    assert task is not None and task.cancelled()
+    assert buffer._interval_task is None
+
+    await buffer.close()  # idempotent
+    assert len(sink.batches) == 1

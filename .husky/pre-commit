@@ -4,11 +4,16 @@ npx oxlint
 # Ruff on staged Python files. The version constraint must track the dev group
 # in packages/python/pyproject.toml. Missing uvx only warns: CI's python-lint
 # job is the enforcement.
-staged_py=$(git diff --cached --name-only --diff-filter=ACMR -- '*.py')
-if [ -n "$staged_py" ]; then
+#
+# The emptiness guard is needed: xargs -0 on macOS runs the command once even
+# on empty input. The ruff calls read a NUL-separated listing so a path with a
+# space or newline stays one argument.
+if [ -n "$(git diff --cached --name-only --diff-filter=ACMR -- '*.py')" ]; then
   if command -v uvx >/dev/null 2>&1; then
-    echo "$staged_py" | xargs uvx --from 'ruff>=0.15,<0.16' ruff format --check -- || exit 1
-    echo "$staged_py" | xargs uvx --from 'ruff>=0.15,<0.16' ruff check -- || exit 1
+    git diff --cached --name-only --diff-filter=ACMR -z -- '*.py' \
+      | xargs -0 uvx --from 'ruff>=0.15,<0.16' ruff format --check -- || exit 1
+    git diff --cached --name-only --diff-filter=ACMR -z -- '*.py' \
+      | xargs -0 uvx --from 'ruff>=0.15,<0.16' ruff check -- || exit 1
   else
     echo "pre-commit: uvx not found, skipping ruff on staged .py files (CI python-lint enforces it)" >&2
   fi

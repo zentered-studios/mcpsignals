@@ -35,6 +35,10 @@ class EventBuffer:
         self._lock = asyncio.Lock()
         self._warned_sinks: set[int] = set()
         self._interval_task: asyncio.Task | None = None
+        # The interval task's current flush, if one is in progress. Kept
+        # outside the task (and shielded from its cancellation) so close()
+        # can wait for a write that already left the buffer.
+        self._inflight: asyncio.Future | None = None
         # Manual mode (`flush_interval_s=None`) never starts the interval task
         # and never registers the atexit hook. `stop()` flips this too, so a
         # later `add()` cannot silently restart the task.
@@ -56,7 +60,12 @@ class EventBuffer:
     async def _interval_loop(self) -> None:
         while True:
             await asyncio.sleep(self._flush_interval_s)  # type: ignore[arg-type]
-            await self.flush()
+            # Shielded: cancelling this task (stop()/close()) must not abort a
+            # sink write whose batch has already been popped from the buffer.
+            # CancelledError is a BaseException, so _write_to_sink's `except
+            # Exception` would not catch it and the batch would be lost.
+            self._inflight = asyncio.ensure_future(self.flush())
+            await asyncio.shield(self._inflight)
 
     async def add(self, event: Event) -> None:
         self._ensure_interval_task()
@@ -82,7 +91,8 @@ class EventBuffer:
     def stop(self) -> None:
         """Cancel the interval task (if one is running) and unregister the
         atexit hook. Safe to call in manual mode, and safe to call twice.
-        Does not flush: use `close()` for a final flush plus stop.
+        Does not flush, and leaves an in-flight interval write untouched:
+        use `close()` for a final flush plus stop.
         """
         self._stopped = True
         if self._interval_task is not None:
@@ -93,15 +103,20 @@ class EventBuffer:
         atexit.unregister(self._atexit_flush)
 
     async def close(self) -> None:
-        """Final flush, then `stop()`. Waits for the cancelled interval task
-        to settle so nothing is left running on the loop. Idempotent.
+        """`stop()`, wait for the interval task and any write it already had
+        in flight to settle, then a final `flush()`. Nothing is left running
+        on the loop and no popped batch is dropped. Idempotent.
         """
-        await self.flush()
         task = self._interval_task
         self.stop()
         if task is not None:
             with suppress(asyncio.CancelledError):
                 await task
+        inflight = self._inflight
+        if inflight is not None and not inflight.done():
+            # Shielded again so cancelling close() itself lets the write finish.
+            await asyncio.shield(inflight)
+        await self.flush()
 
     async def _write_to_sink(self, sink: Sink, batch: list[Event]) -> None:
         try:

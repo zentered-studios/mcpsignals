@@ -155,3 +155,40 @@ async def test_close_flushes_then_stops():
 
     await buffer.close()  # idempotent
     assert len(sink.batches) == 1
+
+
+@pytest.mark.asyncio
+async def test_close_waits_for_in_flight_interval_flush():
+    class BlockingSink:
+        def __init__(self):
+            self.started = asyncio.Event()
+            self.release = asyncio.Event()
+            self.batches: list[list] = []
+            self.cancelled = False
+
+        async def write(self, events):
+            self.started.set()
+            try:
+                await self.release.wait()
+            except asyncio.CancelledError:
+                self.cancelled = True
+                raise
+            self.batches.append(list(events))
+
+    sink = BlockingSink()
+    buffer = EventBuffer([sink], buffer_size=100, flush_interval_s=0.01)
+    await buffer.add(make_event("a"))
+    # The interval task has popped the batch and is inside sink.write().
+    await asyncio.wait_for(sink.started.wait(), timeout=1)
+
+    close_task = asyncio.create_task(buffer.close())
+    await asyncio.sleep(0.05)
+    assert not close_task.done()  # close() waits for the in-flight write
+    assert sink.cancelled is False
+
+    sink.release.set()
+    await asyncio.wait_for(close_task, timeout=1)
+    assert sink.cancelled is False
+    assert len(sink.batches) == 1
+    assert sink.batches[0][0].tool_name == "a"
+    assert buffer._interval_task is None

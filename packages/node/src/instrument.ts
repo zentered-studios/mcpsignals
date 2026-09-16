@@ -78,10 +78,17 @@ function extractErrorMessage(result: ToolResultLike): string | null {
  * call it immediately after constructing the server and before registering
  * any tools, since it works by wrapping `registerTool` itself.
  *
- * A failure inside a sink or the buffer is caught and never propagates to
- * the tool handler or delays its response — see EventBuffer. A thrown error
- * from the real tool handler is re-thrown unchanged; this wrapper only
- * observes it.
+ * Nothing the library does around a tool call can change what the client
+ * receives. The real handler always runs, its return value is passed through
+ * unchanged, and a thrown error is re-thrown unchanged; this wrapper only
+ * observes it. Every library-side step (request/response byte counting,
+ * `resolveIdentity`, redaction, event construction, the buffer push) is
+ * guarded: a failure is logged once per `instrument()` call via
+ * `console.error`, then suppressed, and the step falls back to a neutral
+ * value (`request_bytes`/`response_bytes` 0, empty identity, `arguments:
+ * null`). A failing redactor therefore records `arguments: null`, never the
+ * raw arguments. A failure inside a sink is handled separately by
+ * EventBuffer, also logged once per sink.
  */
 export function instrument(server: McpServer, options: InstrumentOptions): InstrumentHandle {
   const buffer = new EventBuffer({
@@ -89,6 +96,28 @@ export function instrument(server: McpServer, options: InstrumentOptions): Instr
     bufferSize: options.bufferSize,
     flushIntervalMs: options.flushIntervalMs
   });
+
+  // Same "log once, then suppress" pattern EventBuffer uses per sink, scoped
+  // to this instrument() call: one line is enough to surface a broken
+  // resolver or redactor, and a line per tool call would drown the host's logs.
+  let telemetryWarned = false;
+  const warnOnce = (step: string, error: unknown): void => {
+    if (telemetryWarned) return;
+    telemetryWarned = true;
+    console.error(
+      `[mcpsignals] ${step} failed; the tool result is unaffected and further telemetry errors from this instrument() call are suppressed:`,
+      error
+    );
+  };
+  /** Runs one library-side step; on a throw, logs once and returns `fallback`. */
+  const guarded = <T>(step: string, fn: () => T, fallback: T): T => {
+    try {
+      return fn();
+    } catch (error) {
+      warnOnce(step, error);
+      return fallback;
+    }
+  };
 
   const originalRegisterTool = server.registerTool.bind(server);
 
@@ -118,7 +147,9 @@ export function instrument(server: McpServer, options: InstrumentOptions): Instr
       const startedAt = new Date();
       const start = performance.now();
 
-      const requestBytes = byteLength(args);
+      // `JSON.stringify` throws on a BigInt (and on a throwing `toJSON`);
+      // an unmeasurable request is recorded as 0 bytes, never blocks the handler.
+      const requestBytes = guarded('request byte count', () => byteLength(args), 0);
 
       let cleanArgs = args;
       let sessionIdFromArgs: string | null = null;
@@ -133,17 +164,36 @@ export function instrument(server: McpServer, options: InstrumentOptions): Instr
       }
 
       const sessionId = ctx.sessionId ?? sessionIdFromArgs ?? null;
-      const identity = (await options.resolveIdentity?.({ sessionId: ctx.sessionId })) ?? {};
-      // getClientVersion() is deprecated in favor of reading client identity off the
-      // per-request `_meta` envelope, but the SDK's own deprecation note says the accessor
-      // "remains functional" and is backfilled per request on 2026-07-28-era connections too.
-      // Deliberately kept rather than reaching into the envelope's internal shape, which isn't
-      // part of this SDK's stable public surface yet.
-      const clientInfo = server.server.getClientVersion();
+      // A host resolver that throws or rejects records a null identity; the
+      // handler still runs. (#27 covers where this runs relative to the timer.)
+      let identity: { userId?: string; orgId?: string } = {};
+      try {
+        identity = (await options.resolveIdentity?.({ sessionId: ctx.sessionId })) ?? {};
+      } catch (error) {
+        warnOnce('resolveIdentity', error);
+      }
 
-      const emit = (
+      /**
+       * Builds and pushes the event. Every caller wraps this in `guarded`, so
+       * a failure anywhere in here (client info, redaction, the buffer push)
+       * is logged once and the event is dropped, never surfaced to the client.
+       * Redaction is guarded on its own so a broken redactor still leaves an
+       * event behind, recorded with `arguments: null` rather than the raw args.
+       */
+      const push = (
         partial: Pick<ToolCallEvent, 'success' | 'error_kind' | 'error_message' | 'response_bytes'>
       ) => {
+        // getClientVersion() is deprecated in favor of reading client identity off the
+        // per-request `_meta` envelope, but the SDK's own deprecation note says the accessor
+        // "remains functional" and is backfilled per request on 2026-07-28-era connections too.
+        // Deliberately kept rather than reaching into the envelope's internal shape, which isn't
+        // part of this SDK's stable public surface yet.
+        const clientInfo = server.server.getClientVersion();
+        const recordedArguments = guarded(
+          'redaction',
+          () => applyRedaction(cleanArgs, options.redaction, options.captureArguments),
+          null
+        );
         buffer.push({
           event_type: 'tool_call',
           ts: startedAt,
@@ -158,43 +208,61 @@ export function instrument(server: McpServer, options: InstrumentOptions): Instr
           org_id: identity.orgId ?? null,
           duration_ms: Math.round(performance.now() - start),
           request_bytes: requestBytes,
-          arguments: applyRedaction(cleanArgs, options.redaction, options.captureArguments),
+          arguments: recordedArguments,
           intent,
           transport: ctx.http ? 'http' : 'stdio',
           ...partial
         });
       };
 
+      // Only the handler call itself lives in this try: a throw here is the
+      // handler's own, recorded and re-thrown unchanged. Recording happens
+      // outside it so a telemetry failure can never be mistaken for one.
+      let result: ToolResultLike;
       try {
-        const result = (await invoke(cleanArgs)) as ToolResultLike;
-        if (result?.isError) {
-          const errorMessage = extractErrorMessage(result);
-          emit({
-            success: false,
-            error_kind: classifyError(errorMessage),
-            error_message: errorMessage,
-            response_bytes: byteLength(result)
-          });
-        } else {
-          emit({
-            success: true,
-            error_kind: null,
-            error_message: null,
-            response_bytes: byteLength(result)
-          });
-        }
-        return result;
+        result = (await invoke(cleanArgs)) as ToolResultLike;
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        const truncated = message.length > 2000 ? message.slice(0, 2000) : message;
-        emit({
-          success: false,
-          error_kind: classifyError(truncated),
-          error_message: truncated,
-          response_bytes: 0
-        });
+        guarded(
+          'event recording',
+          () => {
+            const message = error instanceof Error ? error.message : String(error);
+            const truncated = message.length > 2000 ? message.slice(0, 2000) : message;
+            push({
+              success: false,
+              error_kind: classifyError(truncated),
+              error_message: truncated,
+              response_bytes: 0
+            });
+          },
+          undefined
+        );
         throw error;
       }
+
+      guarded(
+        'event recording',
+        () => {
+          const responseBytes = guarded('response byte count', () => byteLength(result), 0);
+          if (result?.isError) {
+            const errorMessage = extractErrorMessage(result);
+            push({
+              success: false,
+              error_kind: classifyError(errorMessage),
+              error_message: errorMessage,
+              response_bytes: responseBytes
+            });
+          } else {
+            push({
+              success: true,
+              error_kind: null,
+              error_message: null,
+              response_bytes: responseBytes
+            });
+          }
+        },
+        undefined
+      );
+      return result;
     };
 
     // The SDK's `createToolExecutor` picks the handler arity from the registered

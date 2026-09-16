@@ -1,4 +1,5 @@
 import asyncio
+import logging
 
 import pytest
 from mcp.client.client import Client
@@ -8,6 +9,7 @@ from mcp.types import Implementation
 from mcpsignals import instrument
 from mcpsignals.events import ToolCallEvent
 from mcpsignals.intent_capture import MAX_IDENTIFIER_LENGTH, MAX_INTENT_LENGTH
+from mcpsignals.redaction import RedactionConfig
 
 
 class RecordingSink:
@@ -260,3 +262,81 @@ async def test_intent_capture_per_tool_override():
         tools = {t.name: t for t in (await client.list_tools()).tools}
         assert "intent" in tools["search"].input_schema.get("properties", {})
         assert "intent" not in tools["other"].input_schema.get("properties", {})
+
+
+# Telemetry failure isolation (#25): nothing the library does around a tool
+# call may change what the client receives. Each test below breaks one
+# library-side step and asserts the handler's own result still comes back,
+# the event still lands, and the failure is logged once per instrument() call.
+
+
+def _mcpsignals_records(caplog):
+    return [record for record in caplog.records if record.name == "mcpsignals"]
+
+
+@pytest.mark.asyncio
+async def test_raising_redactor_never_reaches_the_client(caplog):
+    def exploding_redactor(args):
+        raise RuntimeError("redactor exploded")
+
+    server, sink = build_server(
+        capture_arguments=True, redaction=RedactionConfig(redactor=exploding_redactor)
+    )
+
+    @server.tool()
+    def search(query: str) -> str:
+        return query
+
+    with caplog.at_level(logging.ERROR, logger="mcpsignals"):
+        async with Client(server) as client:
+            first = await client.call_tool("search", {"query": "secret plans"})
+            second = await client.call_tool("search", {"query": "secret plans"})
+            await asyncio.sleep(0.05)
+
+    assert not first.is_error
+    assert first.content[0].text == "secret plans"
+    assert not second.is_error
+    assert second.content[0].text == "secret plans"
+
+    assert len(sink.events) == 2
+    for event in sink.events:
+        assert event.success is True
+        # A failed redactor must never fall back to the raw arguments.
+        assert event.arguments is None
+
+    records = _mcpsignals_records(caplog)
+    assert len(records) == 1, "logged once per instrument() call, not per event"
+    assert "redactor exploded" in records[0].getMessage()
+
+
+@pytest.mark.asyncio
+async def test_raising_resolve_identity_never_reaches_the_client(caplog):
+    def exploding_identity(ctx):
+        raise RuntimeError("identity service down")
+
+    server, sink = build_server(resolve_identity=exploding_identity)
+
+    @server.tool()
+    def add(a: int, b: int) -> int:
+        return a + b
+
+    with caplog.at_level(logging.ERROR, logger="mcpsignals"):
+        async with Client(server) as client:
+            first = await client.call_tool("add", {"a": 1, "b": 2})
+            second = await client.call_tool("add", {"a": 2, "b": 3})
+            await asyncio.sleep(0.05)
+
+    assert not first.is_error
+    assert first.content[0].text == "3"
+    assert not second.is_error
+    assert second.content[0].text == "5"
+
+    assert len(sink.events) == 2
+    for event in sink.events:
+        assert event.success is True
+        assert event.user_id is None
+        assert event.org_id is None
+
+    records = _mcpsignals_records(caplog)
+    assert len(records) == 1
+    assert "identity service down" in records[0].getMessage()

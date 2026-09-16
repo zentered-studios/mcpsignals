@@ -1,0 +1,35 @@
+{
+  "cli_version": "0.10.6",
+  "checkpoint_id": "01M2P40REZTEEBQEW05M1GP11G",
+  "session_id": "2834bc4f-3e08-4fca-8de7-76d373a7fed7",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-16T22:04:58.261268Z",
+  "branch": "docs/issue-29-schema-transport-otlp-claims",
+  "checkpoints_count": 1,
+  "files_touched": [],
+  "agent": "Claude Code",
+  "model": "claude-fable-5-1",
+  "turn_id": "400ba2d64bcc",
+  "checkpoint_transcript_start": 675,
+  "transcript_lines_at_start": 675,
+  "compact_transcript_start": 94,
+  "token_usage": {
+    "input_tokens": 0,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 0,
+    "output_tokens": 0,
+    "api_call_count": 0
+  },
+  "session_metrics": {
+    "turn_count": 1
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}

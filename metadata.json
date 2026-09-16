@@ -1,0 +1,24 @@
+{
+  "cli_version": "0.10.6",
+  "checkpoint_id": "01M2P49MJ4MHC6RE83HJA06EDC",
+  "strategy": "manual-commit",
+  "branch": "feat/issue-31-python-flush-handle",
+  "checkpoints_count": 1,
+  "files_touched": null,
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 4,
+    "cache_creation_tokens": 10653,
+    "cache_read_tokens": 878573,
+    "output_tokens": 2513,
+    "api_call_count": 2
+  }
+}

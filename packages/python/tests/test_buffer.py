@@ -192,3 +192,23 @@ async def test_close_waits_for_in_flight_interval_flush():
     assert len(sink.batches) == 1
     assert sink.batches[0][0].tool_name == "a"
     assert buffer._interval_task is None
+
+
+@pytest.mark.asyncio
+async def test_cancelling_close_propagates_and_skips_final_flush():
+    sink = RecordingSink()
+    buffer = EventBuffer([sink], buffer_size=100, flush_interval_s=999)
+    await buffer.add(make_event("a"))
+    assert buffer._interval_task is not None  # sleeping on the interval
+
+    close_task = asyncio.create_task(buffer.close())
+    # One loop iteration: close() has called stop() and is now suspended
+    # waiting for the interval task to finish cancelling.
+    await asyncio.sleep(0)
+    assert not close_task.done()
+    close_task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await close_task
+    # A cancelled close() must not go on to perform the final flush.
+    assert sink.batches == []

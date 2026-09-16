@@ -11,7 +11,6 @@ import asyncio
 import atexit
 import logging
 from collections.abc import Sequence
-from contextlib import suppress
 
 from mcpsignals.events import SessionSummaryEvent, ToolCallEvent
 from mcpsignals.sinks.base import Sink
@@ -110,8 +109,13 @@ class EventBuffer:
         task = self._interval_task
         self.stop()
         if task is not None:
-            with suppress(asyncio.CancelledError):
-                await task
+            # Not `suppress(CancelledError)` around `await task`: a
+            # cancellation aimed at close() itself surfaces at that same await
+            # and would be swallowed too. gather(return_exceptions=True) hands
+            # the interval task's own CancelledError back as a value while a
+            # cancel of close() still raises out of the await. (3.10-safe:
+            # `Task.cancelling()` is 3.11+.)
+            await asyncio.gather(task, return_exceptions=True)
         inflight = self._inflight
         if inflight is not None and not inflight.done():
             # Shielded again so cancelling close() itself lets the write finish.

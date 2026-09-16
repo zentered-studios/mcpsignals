@@ -11,6 +11,14 @@ from mcpsignals import instrument
 from mcpsignals.events import ToolCallEvent
 from mcpsignals.intent_capture import MAX_IDENTIFIER_LENGTH, MAX_INTENT_LENGTH
 from mcpsignals.redaction import RedactionConfig
+from starlette.applications import Starlette
+from starlette.routing import Mount
+
+# mcp>=2.x depends on the `httpx2` fork; an older resolution ships `httpx`. Same API.
+try:
+    import httpx2 as httpx
+except ImportError:  # pragma: no cover - depends on how `mcp` resolved
+    import httpx
 
 
 class RecordingSink:
@@ -451,3 +459,83 @@ async def test_tool_name_from_the_request_is_truncated_to_the_identifier_cap():
     event = sink.events[0]
     assert event.success is False
     assert event.tool_name == "t" * MAX_IDENTIFIER_LENGTH
+
+
+# Identity: `resolve_identity` may return the tuple directly or as an
+# awaitable. The awaitable path is asserted in the duration test above; this
+# pins the sync path and that the resolver receives the middleware context.
+
+
+@pytest.mark.asyncio
+async def test_sync_resolve_identity_lands_on_the_event():
+    seen: list[str] = []
+
+    def identity(ctx):
+        seen.append(ctx.method)
+        return ("u-sync", "o-sync")
+
+    server, sink = build_server(resolve_identity=identity)
+
+    @server.tool()
+    def whoami() -> str:
+        return "ok"
+
+    async with Client(server) as client:
+        result = await client.call_tool("whoami", {})
+        await asyncio.sleep(0.05)
+
+    assert not result.is_error
+    assert len(sink.events) == 1
+    event = sink.events[0]
+    assert event.user_id == "u-sync"
+    assert event.org_id == "o-sync"
+    assert seen == ["tools/call"]
+
+
+# Transport: the SDK attaches the Starlette request to the middleware context
+# only on the streamable HTTP path, and the middleware maps that to
+# `transport="http"`. Driven through the real ASGI app with the same JSON-RPC
+# body the example READMEs send with curl.
+
+
+@pytest.mark.asyncio
+async def test_transport_is_http_over_the_streamable_http_app():
+    server, sink = build_server()
+
+    @server.tool()
+    def add_note(text: str) -> str:
+        return f"Saved: {text}"
+
+    # Same shape as examples/python-starlette/server.py. `stateless_http=True`
+    # so a bare `tools/call` needs no `initialize` handshake first.
+    app = Starlette(routes=[Mount("/", app=server.streamable_http_app(stateless_http=True))])
+    body = (
+        '{"jsonrpc":"2.0","id":1,"method":"tools/call",'
+        '"params":{"name":"add_note","arguments":{"text":"hello from curl"}}}'
+    )
+
+    # `ASGITransport` never runs the ASGI lifespan, so the session manager is
+    # started here directly instead of through a Starlette `lifespan=`. The
+    # SDK's DNS rebinding protection for `host="127.0.0.1"` allows
+    # `127.0.0.1:*` only, so the base URL carries a port like the curl does.
+    async with server.session_manager.run():
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://127.0.0.1:8001"
+        ) as client:
+            response = await client.post(
+                "/mcp",
+                headers={
+                    "Content-Type": "application/json",
+                    "Accept": "application/json, text/event-stream",
+                },
+                content=body,
+            )
+        await asyncio.sleep(0.05)
+
+    assert response.status_code == 200, response.text
+    assert "Saved: hello from curl" in response.text
+    assert len(sink.events) == 1
+    event = sink.events[0]
+    assert event.tool_name == "add_note"
+    assert event.success is True
+    assert event.transport == "http"

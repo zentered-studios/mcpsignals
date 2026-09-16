@@ -185,3 +185,25 @@ test('one sink failing does not block another sink from receiving the batch', as
     console.error = originalConsoleError;
   }
 });
+
+test('stop() clears the interval: a push() after stop() is never auto-flushed by the timer', async t => {
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  const written = [];
+  const sink = { write: async batch => void written.push(...batch) };
+
+  // Control: with the timer still running, the same tick flushes the event,
+  // so the assertion below cannot pass just because mocked timers never fire.
+  const running = new EventBuffer({ sinks: [sink], bufferSize: 100, flushIntervalMs: 20 });
+  running.push(makeEvent(1));
+  t.mock.timers.tick(20);
+  await Promise.resolve();
+  assert.equal(written.length, 1, 'sanity: the mocked interval does drive a flush');
+  running.stop();
+
+  const stopped = new EventBuffer({ sinks: [sink], bufferSize: 100, flushIntervalMs: 20 });
+  stopped.stop();
+  stopped.push(makeEvent(2));
+  t.mock.timers.tick(10 * 60 * 1000);
+  await Promise.resolve();
+  assert.equal(written.length, 1, 'stop() must clear the interval so nothing more is flushed');
+});

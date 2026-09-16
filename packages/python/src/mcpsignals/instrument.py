@@ -41,7 +41,13 @@ from typing import Any
 from mcpsignals.buffer import EventBuffer
 from mcpsignals.error_kind import classify_error
 from mcpsignals.events import ToolCallEvent
-from mcpsignals.intent_capture import enabled_for, inject_schema, strip_injected
+from mcpsignals.intent_capture import (
+    MAX_IDENTIFIER_LENGTH,
+    bounded,
+    enabled_for,
+    inject_schema,
+    strip_injected,
+)
 from mcpsignals.redaction import RedactionConfig, redact_arguments
 from mcpsignals.sinks.base import Sink
 from mcpsignals.sinks.console import ConsoleSink
@@ -164,7 +170,13 @@ def instrument(
         start = time.perf_counter()
 
         params = ctx.params or {}
-        tool_name = params.get("name", "")
+        # `name` comes straight off the `tools/call` request, not from the
+        # registration: a client can send any string here (the call then
+        # fails, but the failed event still records it), so it takes the same
+        # identifier cap as the intent fields. The uncapped value still drives
+        # the intent-capture lookup and the forwarded call below.
+        raw_tool_name = params.get("name", "")
+        tool_name = bounded(raw_tool_name, MAX_IDENTIFIER_LENGTH) or ""
         raw_arguments = params.get("arguments") or {}
         try:
             request_bytes = len(json.dumps(raw_arguments, default=str).encode())
@@ -173,7 +185,7 @@ def instrument(
             request_bytes = 0
 
         tool_intent_enabled = enabled_for(
-            tool_name, global_enabled=intent_capture, overrides=intent_capture_tools
+            raw_tool_name, global_enabled=intent_capture, overrides=intent_capture_tools
         )
         if tool_intent_enabled:
             clean_arguments, extracted = strip_injected(raw_arguments)
@@ -185,13 +197,16 @@ def instrument(
             extracted = {"session_id": None, "agent_id": None, "intent": None}
             forward_ctx = ctx
 
+        # The client declares its own name/version in the `initialize`
+        # handshake, so both are caller-controlled and take the same
+        # identifier cap as the intent fields.
         client_name: str | None = None
         client_version: str | None = None
         client_params = getattr(ctx.session, "client_params", None)
         client_info = getattr(client_params, "client_info", None) if client_params else None
         if client_info is not None:
-            client_name = client_info.name
-            client_version = client_info.version
+            client_name = bounded(client_info.name, MAX_IDENTIFIER_LENGTH)
+            client_version = bounded(client_info.version, MAX_IDENTIFIER_LENGTH)
 
         transport = "http" if getattr(ctx, "request", None) is not None else "stdio"
 

@@ -170,7 +170,9 @@ they reach any sink: `intent` is truncated to 2000 chars (the same cap as
 `error_message`), `session_id` and `agent_id` to 128. A non-string value is
 recorded as null. This holds for every sink, including your own - an
 oversized value can't fail a batched write and take an entire flush of
-unrelated events with it.
+unrelated events with it. `client_name` and `client_version`, which the
+client declares in its `initialize` handshake, take the same 128-char cap,
+as does `tool_name` where it is read off the request (Python).
 
 ## What this is not
 

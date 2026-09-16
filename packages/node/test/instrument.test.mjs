@@ -1,7 +1,8 @@
 import { test, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { z } from 'zod';
-import { McpServer } from '@modelcontextprotocol/server';
+import { McpServer, InMemoryTransport } from '@modelcontextprotocol/server';
+import { Client } from '@modelcontextprotocol/client';
 import { instrument } from '../dist/index.mjs';
 import { createInstrumentedServer, connectClient } from './helpers.mjs';
 
@@ -416,4 +417,39 @@ test('ts is when the call started, not when it finished', async () => {
     events[0].ts.getTime() <= handlerSawAt - 40,
     `ts ${events[0].ts.toISOString()} is not at least 40 ms before the handler finished at ${new Date(handlerSawAt).toISOString()}`
   );
+});
+
+// Bounds (#19): `client_name`/`client_version` come from the client's
+// `initialize` handshake, so they are caller-controlled like the intent
+// fields and take the same 128-char identifier cap. Truncated, never dropped.
+
+test('client_name and client_version are truncated to 128 chars, never dropped', async () => {
+  const { server, events } = createInstrumentedServer();
+  server.registerTool('ping', { inputSchema: z.object({}) }, async () => ({
+    content: [{ type: 'text', text: 'ok' }]
+  }));
+  const client = new Client({ name: 'c'.repeat(5000), version: 'v'.repeat(5000) });
+  const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+  await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+
+  await client.callTool({ name: 'ping', arguments: {} });
+
+  await new Promise(resolve => setTimeout(resolve, 10));
+  assert.equal(events.length, 1);
+  assert.equal(events[0].client_name, 'c'.repeat(128));
+  assert.equal(events[0].client_version, 'v'.repeat(128));
+});
+
+test('client_name and client_version within the cap reach the sink unchanged', async () => {
+  const { server, events } = createInstrumentedServer();
+  server.registerTool('ping', { inputSchema: z.object({}) }, async () => ({
+    content: [{ type: 'text', text: 'ok' }]
+  }));
+  const client = await connectClient(server);
+
+  await client.callTool({ name: 'ping', arguments: {} });
+
+  await new Promise(resolve => setTimeout(resolve, 10));
+  assert.equal(events[0].client_name, 'test-client');
+  assert.equal(events[0].client_version, '9.9.9');
 });

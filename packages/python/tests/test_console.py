@@ -1,6 +1,6 @@
 import io
 import json
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 from mcpsignals.events import ToolCallEvent
 from mcpsignals.sinks import ConsoleSink
@@ -10,7 +10,7 @@ def make_event(tool_name="t") -> ToolCallEvent:
     return ToolCallEvent(
         tool_name=tool_name,
         server_name="s",
-        ts=datetime(2026, 9, 16, 12, 0, 0, tzinfo=UTC),
+        ts=datetime(2026, 9, 16, 12, 0, 0, tzinfo=timezone.utc),
     )
 
 

@@ -152,6 +152,17 @@ def instrument(
         if ctx.method != "tools/call":
             return await call_next(ctx)
 
+        # `ts` is when the call started, not when it finished, and
+        # `duration_ms` is wall time from call start to response
+        # (schema/events.md): both are anchored here, before any library-side
+        # step, and `_record` reads them back after the handler settles.
+        #
+        # Not datetime.UTC: that alias is 3.11+, and requires-python allows
+        # 3.10. Ruff's UP017 would rewrite this, which is why ruff.toml pins
+        # target-version to py310.
+        ts = datetime.now(timezone.utc)
+        start = time.perf_counter()
+
         params = ctx.params or {}
         tool_name = params.get("name", "")
         raw_arguments = params.get("arguments") or {}
@@ -174,21 +185,6 @@ def instrument(
             extracted = {"session_id": None, "agent_id": None, "intent": None}
             forward_ctx = ctx
 
-        # A host resolver that raises records a null identity; the handler
-        # still runs. (#27 covers where this runs relative to the timer.)
-        user_id: str | None = None
-        org_id: str | None = None
-        if resolve_identity is not None:
-            try:
-                identity = resolve_identity(ctx)
-                if inspect.isawaitable(identity):
-                    identity = await identity
-                if identity:
-                    user_id, org_id = identity
-            except Exception as exc:  # noqa: BLE001 - a broken resolver never blocks the handler
-                _warn_once("resolve_identity", exc)
-                user_id, org_id = None, None
-
         client_name: str | None = None
         client_version: str | None = None
         client_params = getattr(ctx.session, "client_params", None)
@@ -199,10 +195,28 @@ def instrument(
 
         transport = "http" if getattr(ctx, "request", None) is not None else "stdio"
 
-        start = time.perf_counter()
-
-        async def _record(error: BaseException | None, result: Any) -> None:
+        async def _record(ts: datetime, error: BaseException | None, result: Any) -> None:
+            # First thing: the handler has just settled, so this is the
+            # response time. Everything below, `resolve_identity` included,
+            # is outside the timed window.
             duration_ms = int((time.perf_counter() - start) * 1000)
+
+            # Runs after the handler so its latency never lands in
+            # `duration_ms`. A host resolver that raises records a null
+            # identity; the handler's result is already on its way back.
+            user_id: str | None = None
+            org_id: str | None = None
+            if resolve_identity is not None:
+                try:
+                    identity = resolve_identity(ctx)
+                    if inspect.isawaitable(identity):
+                        identity = await identity
+                    if identity:
+                        user_id, org_id = identity
+                except Exception as exc:  # noqa: BLE001 - a broken resolver never blocks the handler
+                    _warn_once("resolve_identity", exc)
+                    user_id, org_id = None, None
+
             if error is not None:
                 success = False
                 error_message: str | None = str(error)[:2000]
@@ -225,10 +239,7 @@ def instrument(
                     arguments = None
 
             event = ToolCallEvent(
-                # Not datetime.UTC: that alias is 3.11+, and requires-python
-                # allows 3.10. Ruff's UP017 would rewrite this, which is why
-                # ruff.toml pins target-version to py310.
-                ts=datetime.now(timezone.utc),
+                ts=ts,
                 server_name=server_name,
                 server_version=server_version,
                 tool_name=tool_name,
@@ -262,9 +273,9 @@ def instrument(
             # An exception raised inside `finally` replaces the handler's
             # return value or exception, so the whole recording step is
             # guarded here. `Exception` only: a cancellation raised while
-            # awaiting the buffer must still propagate.
+            # awaiting the resolver or the buffer must still propagate.
             try:
-                await _record(error, result)
+                await _record(ts, error, result)
             except Exception as exc:  # noqa: BLE001 - telemetry must never change the tool result
                 _warn_once("event recording", exc)
 

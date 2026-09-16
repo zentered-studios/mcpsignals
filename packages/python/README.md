@@ -37,8 +37,10 @@ on every request, so calling it before or after your `@server.tool()`
 definitions makes no difference. The Node.js package differs here: it wraps
 `registerTool`, so it has to run before any tool is registered.
 
-With no sink configured it writes JSON lines to stdout. To write to your
-own warehouse instead:
+With no sink configured it writes JSON lines to stdout. On a stdio
+transport pass `sinks=[ConsoleSink(stream=sys.stderr)]`, because the MCP
+spec reserves stdout for protocol messages. To write to your own warehouse
+instead:
 
 ```python
 from mcpsignals import instrument

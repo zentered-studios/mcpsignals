@@ -167,3 +167,91 @@ test('redaction: captureArguments false never records arguments, regardless of r
   await new Promise(resolve => setTimeout(resolve, 10));
   assert.equal(events[0].arguments, null);
 });
+
+test('no inputSchema: the handler result reaches the client and one success event is recorded', async () => {
+  const { server, events } = createInstrumentedServer();
+  server.registerTool('ping', { description: 'no schema' }, async () => ({
+    content: [{ type: 'text', text: 'pong' }]
+  }));
+  // Same tool with an empty schema: the schema-less event must be recorded
+  // exactly as an empty-arguments call, whatever byteLength({}) is.
+  server.registerTool('ping-empty-schema', { inputSchema: z.object({}) }, async () => ({
+    content: [{ type: 'text', text: 'pong' }]
+  }));
+  const client = await connectClient(server);
+
+  const result = await client.callTool({ name: 'ping', arguments: {} });
+  assert.equal(result.isError, undefined);
+  assert.equal(result.content[0].text, 'pong');
+
+  await new Promise(resolve => setTimeout(resolve, 10));
+  assert.equal(events.length, 1);
+  assert.equal(events[0].tool_name, 'ping');
+  assert.equal(events[0].success, true);
+  assert.equal(events[0].error_message, null);
+  assert.ok(events[0].response_bytes > 0);
+
+  await client.callTool({ name: 'ping-empty-schema', arguments: {} });
+  await new Promise(resolve => setTimeout(resolve, 10));
+  assert.equal(events.length, 2);
+  assert.equal(events[0].request_bytes, events[1].request_bytes);
+});
+
+test('no inputSchema: the handler receives the ctx the SDK passes, not the arguments', async () => {
+  const { server } = createInstrumentedServer();
+  let received;
+  server.registerTool('whoami', { description: 'no schema' }, async ctx => {
+    received = ctx;
+    return { content: [{ type: 'text', text: 'ok' }] };
+  });
+  const client = await connectClient(server);
+
+  await client.callTool({ name: 'whoami', arguments: { ignored: true } });
+  assert.equal(typeof received, 'object');
+  assert.ok(received !== null);
+  assert.ok(!('ignored' in received), 'handler must not receive the raw arguments as ctx');
+});
+
+test('no inputSchema: a thrown error is recorded as a failed event and the client still gets isError:true', async () => {
+  const { server, events } = createInstrumentedServer();
+  server.registerTool('boom-noschema', { description: 'no schema' }, async () => {
+    throw new Error('widget not found');
+  });
+  const client = await connectClient(server);
+
+  const result = await client.callTool({ name: 'boom-noschema', arguments: {} });
+  assert.equal(result.isError, true);
+  assert.equal(result.content[0].text, 'widget not found');
+
+  await new Promise(resolve => setTimeout(resolve, 10));
+  assert.equal(events.length, 1);
+  assert.equal(events[0].tool_name, 'boom-noschema');
+  assert.equal(events[0].success, false);
+  assert.equal(events[0].error_kind, 'not_found');
+  assert.equal(events[0].error_message, 'widget not found');
+});
+
+test('no inputSchema + intentCapture: the injected schema path still works and records intent', async () => {
+  const { server, events } = createInstrumentedServer({ intentCapture: true });
+  server.registerTool('ping-intent', { description: 'no schema' }, async () => ({
+    content: [{ type: 'text', text: 'pong' }]
+  }));
+  const client = await connectClient(server);
+
+  const { tools } = await client.listTools();
+  const advertised = tools.find(t => t.name === 'ping-intent');
+  assert.ok(advertised.inputSchema.properties.intent, 'intent field is injected into the schema');
+
+  const result = await client.callTool({
+    name: 'ping-intent',
+    arguments: { intent: 'health check', session_id: 's-1' }
+  });
+  assert.equal(result.isError, undefined);
+  assert.equal(result.content[0].text, 'pong');
+
+  await new Promise(resolve => setTimeout(resolve, 10));
+  assert.equal(events.length, 1);
+  assert.equal(events[0].success, true);
+  assert.equal(events[0].intent, 'health check');
+  assert.equal(events[0].session_id, 's-1');
+});

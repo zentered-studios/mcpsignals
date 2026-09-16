@@ -167,3 +167,58 @@ test('redaction: captureArguments false never records arguments, regardless of r
   await new Promise(resolve => setTimeout(resolve, 10));
   assert.equal(events[0].arguments, null);
 });
+
+test('byte sizes: request_bytes/response_bytes are UTF-8 byte counts of the JSON, not string lengths', async () => {
+  const { server, events } = createInstrumentedServer();
+  server.registerTool(
+    'greet',
+    { inputSchema: z.object({ name: z.string() }) },
+    async ({ name }) => ({ content: [{ type: 'text', text: `hi ${name} \u{1F44B}` }] })
+  );
+  const client = await connectClient(server);
+
+  const args = { name: 'Zoë \u{1F600}' }; // multi-byte characters: byte count != string length
+  const result = await client.callTool({ name: 'greet', arguments: args });
+  await new Promise(resolve => setTimeout(resolve, 10));
+
+  const encoder = new TextEncoder();
+  const expectedRequest = encoder.encode(JSON.stringify(args)).length;
+  const expectedResponse = encoder.encode(JSON.stringify(result)).length;
+  assert.notEqual(
+    expectedRequest,
+    JSON.stringify(args).length,
+    'fixture must contain multi-byte chars'
+  );
+  assert.equal(events[0].request_bytes, expectedRequest);
+  assert.equal(events[0].response_bytes, expectedResponse);
+});
+
+test('runtime portability: a tool call succeeds with globalThis.Buffer absent (Workers without nodejs_compat)', async () => {
+  const savedBuffer = globalThis.Buffer;
+  try {
+    delete globalThis.Buffer;
+    assert.equal(
+      typeof Buffer,
+      'undefined',
+      'Buffer must be unreachable for this test to mean anything'
+    );
+
+    const { server, events } = createInstrumentedServer();
+    server.registerTool('ping', { inputSchema: z.object({}) }, async () => ({
+      content: [{ type: 'text', text: 'pong' }]
+    }));
+    const client = await connectClient(server);
+
+    const result = await client.callTool({ name: 'ping', arguments: {} });
+    assert.notEqual(result.isError, true, 'the wrapper must not throw when Buffer is undefined');
+    assert.equal(result.content[0].text, 'pong');
+
+    await new Promise(resolve => setTimeout(resolve, 10));
+    assert.equal(events.length, 1);
+    assert.equal(events[0].success, true);
+    assert.ok(events[0].request_bytes > 0);
+    assert.ok(events[0].response_bytes > 0);
+  } finally {
+    globalThis.Buffer = savedBuffer;
+  }
+});

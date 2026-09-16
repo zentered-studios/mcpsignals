@@ -56,8 +56,12 @@ interface ToolResultLike {
   isError?: boolean;
 }
 
+// TextEncoder rather than Buffer.byteLength: this runs on every tool call,
+// and Buffer only exists on Cloudflare Workers behind the nodejs_compat flag.
+const encoder = new TextEncoder();
+
 function byteLength(value: unknown): number {
-  return Buffer.byteLength(JSON.stringify(value) ?? '');
+  return encoder.encode(JSON.stringify(value) ?? '').length;
 }
 
 function extractErrorMessage(result: ToolResultLike): string | null {

@@ -1,0 +1,39 @@
+{
+  "cli_version": "0.10.6",
+  "checkpoint_id": "01M2PJPWTY4KCQE7DQKSRMH098",
+  "session_id": "d21c53de-b365-4498-a14f-1c14c361d040",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-17T02:21:43.19492Z",
+  "branch": "docs/identity-and-buffer-tuning",
+  "checkpoints_count": 1,
+  "files_touched": [],
+  "agent": "Claude Code",
+  "model": "claude-opus-5[1m]",
+  "turn_id": "cb0fa64ae324",
+  "checkpoint_transcript_start": 1231,
+  "transcript_lines_at_start": 1231,
+  "compact_transcript_start": 170,
+  "token_usage": {
+    "input_tokens": 28,
+    "cache_creation_tokens": 24392,
+    "cache_read_tokens": 4443339,
+    "output_tokens": 9809,
+    "api_call_count": 14
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 97,
+      "user_lines_removed": 1,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "packages/node/src/instrument.ts": 25,
+        "packages/node/test/redaction.test.mjs": 72
+      },
+      "user_removed_per_file": {
+        "packages/node/src/instrument.ts": 1
+      }
+    }
+  ]
+}

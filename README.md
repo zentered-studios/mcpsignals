@@ -162,9 +162,38 @@ schemas your server advertises, then strips all three back out before your
 handler sees them - it receives exactly what it would have without this
 library, and both packages have tests proving it.
 
+Node takes `intentCapture`. `true` enables it for every tool. The object
+form enables only the tools named with `true`; every unlisted tool stays
+off.
+
+```ts
+instrument(server, { intentCapture: true });
+instrument(server, { intentCapture: { tools: { search: true } } });
+```
+
+Python takes `intent_capture` as the global default and
+`intent_capture_tools` as per-tool overrides layered on top of it.
+
+```python
+instrument(server, intent_capture=True, intent_capture_tools={"search": False})
+```
+
+The shapes differ: Python can express global-on with per-tool off, Node
+cannot.
+
 It costs tokens on every tool schema, and models sometimes ignore the field
 or invent a plausible-sounding reason. Turn it on only if "why did the agent
 call this" is a question you need answered.
+
+A tool that declares its own `session_id`, `agent_id`, or `intent`
+parameter loses it when intent capture is on for that tool. Both packages
+strip those three keys from the arguments before the handler runs. In Node
+the handler never sees the value, and the library's field definition
+replaces the tool's own in the advertised schema. In Python a required
+parameter with one of those names fails argument validation, and an
+optional one silently falls back to its default while the event carries the
+caller's value. Rename the tool parameter, or do not enable intent capture
+for that tool.
 
 All three values are caller-controlled, so the library bounds them before
 they reach any sink: `intent` is truncated to 2000 chars (the same cap as

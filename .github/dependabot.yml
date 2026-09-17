@@ -1,0 +1,27 @@
+version: 2
+
+updates:
+  # Root workspace covers packages/node and both examples - they share the
+  # single root package-lock.json.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      npm-dependencies:
+        patterns:
+          - "*"
+
+  - package-ecosystem: uv
+    directory: /packages/python
+    schedule:
+      interval: weekly
+    groups:
+      uv-dependencies:
+        patterns:
+          - "*"
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

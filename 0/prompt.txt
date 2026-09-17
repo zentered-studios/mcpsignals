@@ -1,0 +1,120 @@
+<task-notification>
+<task-id>b6j9n6ifn</task-id>
+<summary>Monitor event: "Poll PR 75 CI checks until nothing is pending"</summary>
+<event>pending=8</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b6j9n6ifn</task-id>
+<summary>Monitor event: "Poll PR 75 CI checks until nothing is pending"</summary>
+<event>pending=5</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b6j9n6ifn</task-id>
+<summary>Monitor event: "Poll PR 75 CI checks until nothing is pending"</summary>
+<event>pending=2</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b6j9n6ifn</task-id>
+<summary>Monitor event: "Poll PR 75 CI checks until nothing is pending"</summary>
+<event>pending=1</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b6j9n6ifn</task-id>
+<tool-use-id>toolu_01TVscCL7UuCTwduZFCHqbBa</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-patrick-Sites-mcpsignals/dd92683a-4dc7-4dff-92fe-9dfdad3bc3ba/tasks/b6j9n6ifn.output</output-file>
+<status>completed</status>
+<summary>Monitor "Poll PR 75 CI checks until nothing is pending" stream ended</summary>
+<event>pending=0
+CodeQL	pass	2s	https://github.com/zentered-studios/mcpsignals/runs/105423047565
+analyze (javascript-typescript)	pass	48s	https://github.com/zentered-studios/mcpsignals/actions/runs/35287470943/job/105422890842
+analyze (python)	pass	51s	https://github.com/zentered-studios/mcpsignals/actions/runs/35287470943/job/105422891063
+check (20)	pass	26s	https://github.com/zentered-studios/mcpsignals/actions/runs/35287470990/job/105422891140
+check (24)	pass	29s	https://github.com/zentered-studios/mcpsignals/actions/runs/35287470990/job/105422891363
+dependency-review	pass	9s	https://github.com/zentered-studios/mcpsignals/actions/runs/35287471041/job/105422890795
+python-lint	pass	11s	https://github.com/zentered-studios/mcpsignals/actions/runs/35287470990/job/105422891236
+python-test (3.10)	pass	12s	https://github.com/zentered-studios/mcpsignals/actions/runs/35287470990/job/105422891396
+python-test (3.13)	pass	28s	https://github.com/zentered-studios/mcpsignals/actions/runs/35287470990/job/105422890989</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+n/a
+
+---
+
+yes, mark it ready and merge it
+
+---
+
+<task-notification>
+<task-id>bz7cz5n7e</task-id>
+<summary>Monitor event: "Poll main branch CI/Release runs until all complete"</summary>
+<event>running=1</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bz7cz5n7e</task-id>
+<summary>Monitor event: "Poll main branch CI/Release runs until all complete"</summary>
+<event>running=1</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bz7cz5n7e</task-id>
+<summary>Monitor event: "Poll main branch CI/Release runs until all complete"</summary>
+<event>running=1</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bz7cz5n7e</task-id>
+<summary>Monitor event: "Poll main branch CI/Release runs until all complete"</summary>
+<event>running=1</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bz7cz5n7e</task-id>
+<summary>Monitor event: "Poll main branch CI/Release runs until all complete"</summary>
+<event>running=1</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bz7cz5n7e</task-id>
+<tool-use-id>toolu_01Uha1PfHdwS3KEVZdoQxKSE</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-patrick-Sites-mcpsignals/dd92683a-4dc7-4dff-92fe-9dfdad3bc3ba/tasks/bz7cz5n7e.output</output-file>
+<status>completed</status>
+<summary>Monitor "Poll main branch CI/Release runs until all complete" stream ended</summary>
+<event>running=0
+[{"conclusion":"success","status":"completed","workflowName":"CI"},{"conclusion":"failure","status":"completed","workflowName":"Release"},{"conclusion":"success","status":"completed","workflowName":"CodeQL"}]</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>

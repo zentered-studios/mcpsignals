@@ -24,6 +24,7 @@
     "semantic-release": "^25.0.9"
   },
   "overrides": {
-    "esbuild": "^0.28.1"
+    "esbuild": "^0.28.1",
+    "typescript": "^5.9.0"
   }
 }

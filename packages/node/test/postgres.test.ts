@@ -1,10 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { postgresSink } from '../dist/index.mjs';
+import { postgresSink, type ToolCallEvent } from 'mcpsignals';
 
 const TOOL_CALL_COLUMNS = 19;
 
-function makeToolCallEvent(overrides = {}) {
+function makeToolCallEvent(overrides: Partial<ToolCallEvent> = {}): ToolCallEvent {
   return {
     event_type: 'tool_call',
     ts: new Date('2026-09-01T23:25:24.000Z'),
@@ -30,22 +30,27 @@ function makeToolCallEvent(overrides = {}) {
   };
 }
 
+interface RecordedQuery {
+  text: string;
+  values: unknown[];
+}
+
 // A minimal fake matching the `pg` Pool surface the sink relies on:
 // query(text, values). The assertion that matters is the call count - the
 // sink must issue one multi-row insert per table per flush, not one
 // round trip per event.
 function makeFakePool() {
-  const calls = [];
+  const calls: RecordedQuery[] = [];
   return {
     calls,
-    async query(text, values) {
+    async query(text: string, values: unknown[]) {
       calls.push({ text, values });
       return { rowCount: 0 };
     }
   };
 }
 
-function placeholders(text) {
+function placeholders(text: string): number[] {
   return [...text.matchAll(/\$(\d+)/g)].map(m => Number(m[1]));
 }
 
@@ -144,7 +149,9 @@ test('a batch above the bind-parameter ceiling is split into several statements'
     // Each statement binds its own parameters from $1, not a continuation
     // of the previous statement's numbering.
     assert.match(call.text, /values \(\$1,/);
-    const highest = Math.max(...call.text.match(/\$(\d+)/g).map(p => Number(p.slice(1))));
+    const matches = call.text.match(/\$(\d+)/g);
+    assert.ok(matches);
+    const highest = Math.max(...matches.map(p => Number(p.slice(1))));
     assert.equal(highest, call.values.length, 'placeholders must cover exactly the bound values');
   }
 

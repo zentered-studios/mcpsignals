@@ -1,9 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Writable } from 'node:stream';
-import { consoleSink } from '../dist/index.mjs';
+import { consoleSink, type ToolCallEvent } from 'mcpsignals';
 
-function makeEvent(i) {
+function makeEvent(i: number): ToolCallEvent {
   return {
     event_type: 'tool_call',
     ts: new Date('2026-09-16T12:00:00.000Z'),
@@ -30,7 +30,7 @@ function makeEvent(i) {
 
 /** Collects everything written to a stream into an array of strings. */
 function collectingStream() {
-  const chunks = [];
+  const chunks: string[] = [];
   const stream = new Writable({
     write(chunk, _encoding, callback) {
       chunks.push(chunk.toString());
@@ -45,13 +45,13 @@ function collectingStream() {
  * the original write in `finally` so a failing assertion cannot leave the
  * test reporter's own stdout broken.
  */
-async function withCapturedStdout(fn) {
-  const chunks = [];
+async function withCapturedStdout(fn: () => Promise<void>) {
+  const chunks: string[] = [];
   const originalWrite = process.stdout.write;
-  process.stdout.write = chunk => {
+  process.stdout.write = ((chunk: string | Uint8Array) => {
     chunks.push(chunk.toString());
     return true;
-  };
+  }) as typeof process.stdout.write;
   try {
     await fn();
   } finally {

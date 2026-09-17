@@ -1,14 +1,18 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { z } from 'zod';
-import { createInstrumentedServer, connectClient } from './helpers.mjs';
+import type { AnyEvent, InstrumentOptions } from 'mcpsignals';
+import { createInstrumentedServer, connectClient } from './helpers.js';
 
 // `applyRedaction` is not exported, so every case here drives it through
 // `instrument()` and reads the recorded `arguments` off the event. The
 // default (types only) and the plain allowlist are covered in
 // instrument.test.mjs; these are the remaining RedactionConfig branches.
 
-async function recordLookup(instrumentOptions, args = { email: 'jane@example.com', count: 3 }) {
+async function recordLookup(
+  instrumentOptions: Partial<InstrumentOptions>,
+  args: Record<string, unknown> = { email: 'jane@example.com', count: 3 }
+) {
   const { server, events } = createInstrumentedServer(instrumentOptions);
   server.registerTool(
     'lookup',
@@ -39,7 +43,7 @@ test('deny combined with allow: deny wins for a key listed in both', async () =>
 });
 
 test('custom redactor: its return value is recorded verbatim and allow/deny are ignored', async () => {
-  const seen = [];
+  const seen: Record<string, unknown>[] = [];
   const recorded = await recordLookup({
     captureArguments: true,
     redaction: {
@@ -85,7 +89,7 @@ test('redactor returning a circular object: recorded as arguments null, the even
     captureArguments: true,
     redaction: {
       redactor: () => {
-        const circular = { name: 'x' };
+        const circular: Record<string, unknown> = { name: 'x' };
         circular.self = circular;
         return circular;
       }
@@ -103,14 +107,14 @@ test('redactor returning a BigInt: recorded as arguments null, the event survive
 });
 
 test('an unserializable redactor never costs the other events in the same flush', async () => {
-  const events = [];
+  const events: AnyEvent[] = [];
   const { server } = createInstrumentedServer({
     captureArguments: true,
     bufferSize: 2, // hold both calls, flush them to the sink as one batch
     redaction: {
       redactor: args => {
         if (args.email === 'poison') {
-          const circular = {};
+          const circular: Record<string, unknown> = {};
           circular.self = circular;
           return circular;
         }
@@ -121,7 +125,7 @@ test('an unserializable redactor never costs the other events in the same flush'
     // console/d1/bigquery flush failed rather than only pinning the field.
     sinks: [
       {
-        write: async batch => {
+        write: async (batch: AnyEvent[]) => {
           JSON.stringify(batch);
           events.push(...batch);
         }

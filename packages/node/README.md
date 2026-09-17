@@ -57,10 +57,27 @@ instrument(server, {
 See the root README's redaction section before enabling `redaction.allow`
 to record real argument values.
 
+## Shutting instrumentation down
+
+`instrument()` returns a handle:
+`{ server, flush(): Promise<void>, close(): Promise<void> }`. In default
+mode every `instrument()` call starts an interval timer and adds one
+`beforeExit` listener. If your host disposes the server before the process
+ends (tests, hot reload, one server per connection), call `close()` when
+you dispose it. `close()` runs a final `flush()`, then clears the timer and
+removes the listener. It is safe to call more than once. Manual mode
+(`flushIntervalMs: null`, below) has no timer or listener to release, so
+there `close()` behaves like `flush()`.
+
+```ts
+const handle = instrument(server, { serverName: 'my-server', sinks: [consoleSink()] });
+// ...later, when the server is disposed:
+await handle.close();
+```
+
 ## Request-scoped runtimes (Cloudflare Workers)
 
-`instrument()` returns a handle: `{ server, flush(): Promise<void> }`. On a
-long-lived Node process, ignore it - the interval timer and the
+On a long-lived Node process, ignore the handle - the interval timer and the
 `beforeExit` listener flush for you. On a request-scoped, isolate-based
 runtime, neither of those is reliable: the isolate can be evicted the
 instant the response is sent, with no guarantee a `setInterval` fires again

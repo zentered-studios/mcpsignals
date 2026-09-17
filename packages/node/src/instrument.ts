@@ -45,6 +45,15 @@ export interface InstrumentHandle {
   server: McpServer;
   /** Flushes any buffered events immediately. On a request-scoped runtime (e.g. Cloudflare Workers), call this via `ctx.waitUntil(handle.flush())` before returning the response. */
   flush(): Promise<void>;
+  /**
+   * Shuts instrumentation down: a final `flush()`, then the interval timer
+   * is cleared and the `beforeExit` listener removed. Call it when the host
+   * disposes the server before the process ends - tests, hot reload, one
+   * server per connection - so each `instrument()` call releases what it
+   * registered. Idempotent. In manual mode (`flushIntervalMs: null`) there
+   * is no timer or listener, so it is equivalent to `flush()`.
+   */
+  close(): Promise<void>;
 }
 
 interface ToolCallContext {
@@ -317,5 +326,15 @@ export function instrument(server: McpServer, options: InstrumentOptions): Instr
     );
   }) as typeof server.registerTool;
 
-  return { server, flush: () => buffer.flush() };
+  return {
+    server,
+    flush: () => buffer.flush(),
+    close: async () => {
+      try {
+        await buffer.flush();
+      } finally {
+        buffer.stop();
+      }
+    }
+  };
 }

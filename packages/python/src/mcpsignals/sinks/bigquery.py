@@ -3,10 +3,16 @@ Credentials come from Application Default Credentials, same as the client
 library's own defaults - never an invented config file. The client library
 is synchronous, so writes run in a thread via asyncio.to_thread and never
 block the event loop.
+
+Rows go through `insert_rows_json` (`tabledata.insertAll`), which applies no
+type conversion. A `JSON` column expects a JSON string on that path, so
+`arguments` is encoded with `json.dumps` before insert - the same thing the
+client library's own `insert_rows` does for JSON fields (`_helpers._json_to_json`).
 """
 
 import asyncio
 import dataclasses
+import json
 
 from mcpsignals.events import SessionSummaryEvent, ToolCallEvent
 
@@ -28,6 +34,10 @@ class BigQuerySink:
         row = dataclasses.asdict(event)
         row.pop("event_type", None)
         row["ts"] = event.ts.isoformat() if event.ts else None
+        if isinstance(event, ToolCallEvent):
+            row["arguments"] = (
+                json.dumps(row["arguments"]) if row["arguments"] is not None else None
+            )
         return row
 
     def _insert_sync(self, table: str, rows: list[dict]) -> None:

@@ -7,7 +7,7 @@ from mcp.client.client import Client
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import Implementation
-from mcpsignals import instrument
+from mcpsignals import InstrumentHandle, handle_for, instrument
 from mcpsignals.events import ToolCallEvent
 from mcpsignals.intent_capture import MAX_IDENTIFIER_LENGTH, MAX_INTENT_LENGTH
 from mcpsignals.redaction import RedactionConfig
@@ -263,6 +263,104 @@ async def test_intent_capture_per_tool_override():
         tools = {t.name: t for t in (await client.list_tools()).tools}
         assert "intent" in tools["search"].input_schema.get("properties", {})
         assert "intent" not in tools["other"].input_schema.get("properties", {})
+
+
+@pytest.mark.asyncio
+async def test_handle_for_returns_handle_only_for_instrumented_server():
+    server = MCPServer("test-server")
+    assert handle_for(server) is None
+
+    returned = instrument(server, server_name="test-server", sinks=[RecordingSink()])
+    assert returned is server  # return value unchanged: non-breaking
+
+    handle = handle_for(server)
+    assert isinstance(handle, InstrumentHandle)
+    assert handle_for(server) is handle
+    assert handle_for(MCPServer("other")) is None
+
+
+@pytest.mark.asyncio
+async def test_handle_flush_delivers_buffered_events():
+    server = MCPServer("test-server")
+    sink = RecordingSink()
+    instrument(server, server_name="test-server", sinks=[sink], buffer_size=1000)
+
+    @server.tool()
+    def add(a: int, b: int) -> int:
+        return a + b
+
+    async with Client(server) as client:
+        await client.call_tool("add", {"a": 1, "b": 2})
+        await asyncio.sleep(0.05)
+        assert sink.events == []  # below the size threshold, nothing flushed yet
+
+        await handle_for(server).flush()
+
+    assert len(sink.events) == 1
+    assert sink.events[0].tool_name == "add"
+
+
+@pytest.mark.asyncio
+async def test_manual_mode_has_no_interval_task_and_no_atexit_hook(monkeypatch):
+    import mcpsignals.buffer as buffer_module
+
+    registered: list = []
+    monkeypatch.setattr(buffer_module.atexit, "register", lambda fn, *a, **k: registered.append(fn))
+
+    server = MCPServer("test-server")
+    sink = RecordingSink()
+    instrument(
+        server, server_name="test-server", sinks=[sink], buffer_size=1000, flush_interval_s=None
+    )
+
+    @server.tool()
+    def add(a: int, b: int) -> int:
+        return a + b
+
+    async with Client(server) as client:
+        await client.call_tool("add", {"a": 1, "b": 2})
+        await asyncio.sleep(0.05)
+
+    handle = handle_for(server)
+    assert handle._buffer._interval_task is None
+    assert registered == []
+    assert sink.events == []
+    await handle.flush()
+    assert len(sink.events) == 1
+
+
+@pytest.mark.asyncio
+async def test_handle_close_flushes_cancels_task_unregisters_atexit(monkeypatch):
+    import mcpsignals.buffer as buffer_module
+
+    unregistered: list = []
+    monkeypatch.setattr(buffer_module.atexit, "unregister", lambda fn: unregistered.append(fn))
+
+    server = MCPServer("test-server")
+    sink = RecordingSink()
+    instrument(server, server_name="test-server", sinks=[sink], buffer_size=1000)
+
+    @server.tool()
+    def add(a: int, b: int) -> int:
+        return a + b
+
+    async with Client(server) as client:
+        await client.call_tool("add", {"a": 1, "b": 2})
+        await asyncio.sleep(0.05)
+
+    handle = handle_for(server)
+    task = handle._buffer._interval_task
+    assert task is not None
+    assert sink.events == []
+
+    await handle.close()
+    assert len(sink.events) == 1
+    assert task.cancelled()
+    assert handle._buffer._interval_task is None
+    assert unregistered == [handle._buffer._atexit_flush]
+
+    await handle.close()  # second close must not raise
+    assert len(sink.events) == 1
 
 
 # Telemetry failure isolation (#25): nothing the library does around a tool

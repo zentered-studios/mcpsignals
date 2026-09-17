@@ -1,6 +1,8 @@
 """OTLP sink. Requires the `otlp` extra (opentelemetry-api only, not an SDK
 or exporter - relies on whatever global TracerProvider the host app already
-configured, the standard "zero-code" OTel pattern).
+configured, the standard "zero-code" OTel pattern). Emits one root span per
+tool call; spans are never parented to the context current at flush time
+(see the note at `start_span` in `write`).
 
 Field mapping verified against the live OpenTelemetry GenAI semantic
 conventions for MCP (open-telemetry/semantic-conventions-genai,
@@ -24,6 +26,7 @@ class OtlpSink:
         self._tracer = tracer
 
     async def write(self, events: list[ToolCallEvent | SessionSummaryEvent]) -> None:
+        from opentelemetry.context import Context
         from opentelemetry.trace import SpanKind, Status, StatusCode
 
         for event in events:
@@ -71,8 +74,13 @@ class OtlpSink:
             start_ns = int(event.ts.timestamp() * 1_000_000_000) if event.ts else None
             end_ns = start_ns + event.duration_ms * 1_000_000 if start_ns is not None else None
 
+            # The batch is usually written from inside whatever request handler
+            # pushed the last event, so the current context (the default
+            # parent) belongs to an unrelated span. Start from an empty
+            # Context so every tool call is its own root span.
             span = self._tracer.start_span(
                 f"tools/call {event.tool_name}",
+                context=Context(),
                 kind=SpanKind.SERVER,
                 attributes=attributes,
                 start_time=start_ns,

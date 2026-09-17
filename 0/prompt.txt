@@ -1,0 +1,1 @@
+semantic-release is a dev dependency, right

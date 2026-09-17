@@ -1,0 +1,37 @@
+{
+  "cli_version": "0.10.6",
+  "checkpoint_id": "01M2PHZ01XDVQN8W3HNPJ4A0ZN",
+  "session_id": "d21c53de-b365-4498-a14f-1c14c361d040",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-17T02:08:40.192218Z",
+  "branch": "fix/arguments-serializability-guard",
+  "checkpoints_count": 1,
+  "files_touched": [],
+  "agent": "Claude Code",
+  "model": "claude-opus-5[1m]",
+  "turn_id": "cb0fa64ae324",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 110,
+    "cache_creation_tokens": 208809,
+    "cache_read_tokens": 8442194,
+    "output_tokens": 50898,
+    "api_call_count": 55
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 97,
+      "user_lines_removed": 1,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "packages/node/src/instrument.ts": 25,
+        "packages/node/test/redaction.test.mjs": 72
+      },
+      "user_removed_per_file": {
+        "packages/node/src/instrument.ts": 1
+      }
+    }
+  ]
+}

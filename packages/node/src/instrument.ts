@@ -105,7 +105,16 @@ export function instrument(server: McpServer, options: InstrumentOptions): Instr
       ? { ...config, inputSchema: injectIntentSchema(originalInputSchema) }
       : config;
 
-    const wrappedCb = async (args: Record<string, unknown>, ctx: ToolCallContext) => {
+    /**
+     * Runs one tool call with telemetry around it. `invoke` receives the args
+     * with any injected intent-capture keys stripped and must call the real
+     * handler with the arity the SDK would have used for this registration.
+     */
+    const observeCall = async (
+      args: Record<string, unknown>,
+      ctx: ToolCallContext,
+      invoke: (cleanArgs: Record<string, unknown>) => unknown
+    ) => {
       const startedAt = new Date();
       const start = performance.now();
 
@@ -157,7 +166,7 @@ export function instrument(server: McpServer, options: InstrumentOptions): Instr
       };
 
       try {
-        const result = (await cb(cleanArgs, ctx)) as ToolResultLike;
+        const result = (await invoke(cleanArgs)) as ToolResultLike;
         if (result?.isError) {
           const errorMessage = extractErrorMessage(result);
           emit({
@@ -187,6 +196,24 @@ export function instrument(server: McpServer, options: InstrumentOptions): Instr
         throw error;
       }
     };
+
+    // The SDK's `createToolExecutor` picks the handler arity from the registered
+    // `inputSchema` (same truthiness check as here): with a schema it calls
+    // `(args, ctx)`; without one it calls `(ctx)` and never forwards the
+    // arguments. The wrapper has to match that arity, otherwise the schema-less
+    // handler gets the ctx object in `args` and `undefined` in `ctx`. Branch on
+    // the final `wrappedConfig.inputSchema`, since intent capture may have
+    // injected a schema into a registration that had none.
+    //
+    // On the schema-less path the SDK does not validate or pass the arguments,
+    // so the wrapper records the call as an empty-arguments call (`args = {}`)
+    // rather than reaching into the raw request for a payload the handler
+    // never sees. `request_bytes` therefore matches a schema-backed tool
+    // called with `{}`.
+    const wrappedCb = wrappedConfig.inputSchema
+      ? async (args: Record<string, unknown>, ctx: ToolCallContext) =>
+          observeCall(args, ctx, cleanArgs => cb(cleanArgs, ctx))
+      : async (ctx: ToolCallContext) => observeCall({}, ctx, () => cb(ctx));
 
     // The real `registerTool` overloads are exact per input/output schema shape; a
     // generic wrapper can't preserve that precision through a monkey-patch, so we

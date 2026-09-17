@@ -1,4 +1,6 @@
 import asyncio
+import dataclasses
+import json
 import logging
 from datetime import datetime, timedelta, timezone
 
@@ -637,3 +639,80 @@ async def test_transport_is_http_over_the_streamable_http_app():
     assert event.tool_name == "add_note"
     assert event.success is True
     assert event.transport == "http"
+
+
+# A redactor is a full override: whatever it returns is recorded verbatim, and
+# nothing stops it returning a value `json` cannot encode. Every sink
+# re-serializes `arguments` on its way out (`json.dumps` in postgres and
+# bigquery, `dataclasses.asdict` then `json.dumps` in the console sink), so
+# such a value made the sink raise from inside `EventBuffer._write_to_sink`,
+# which drops the whole batch - including the unrelated events flushed
+# alongside it. The event is kept with `arguments=None` instead, the same
+# fallback a raising redactor already had.
+
+
+def _circular() -> dict:
+    circular: dict = {"name": "x"}
+    circular["self"] = circular
+    return circular
+
+
+@pytest.mark.asyncio
+async def test_unserializable_redactor_output_records_arguments_none():
+    server, sink = build_server(
+        capture_arguments=True,
+        redaction=RedactionConfig(redactor=lambda args: _circular()),
+    )
+
+    @server.tool()
+    def echo(text: str) -> str:
+        return text
+
+    async with Client(server) as client:
+        result = await client.call_tool("echo", {"text": "hi"})
+        await asyncio.sleep(0.05)
+
+    assert not result.is_error, "the tool result must be unaffected"
+    assert len(sink.events) == 1
+    assert sink.events[0].arguments is None
+
+
+@pytest.mark.asyncio
+async def test_unserializable_redactor_never_costs_the_rest_of_the_flush():
+    written: list = []
+
+    class SerializingSink:
+        """Serializes like every real sink does, so this fails the way a
+        console/postgres/bigquery flush failed rather than only pinning the
+        field.
+        """
+
+        async def write(self, events):
+            json.dumps([dataclasses.asdict(e) for e in events], default=str)
+            written.extend(events)
+
+    def redactor(args):
+        return _circular() if args.get("text") == "poison" else {"text": "kept"}
+
+    server = MCPServer("test-server")
+    instrument(
+        server,
+        server_name="test-server",
+        sinks=[SerializingSink()],
+        buffer_size=2,  # hold both calls, flush them to the sink as one batch
+        capture_arguments=True,
+        redaction=RedactionConfig(redactor=redactor),
+    )
+
+    @server.tool()
+    def echo(text: str) -> str:
+        return text
+
+    async with Client(server) as client:
+        await client.call_tool("echo", {"text": "poison"})
+        await client.call_tool("echo", {"text": "fine"})
+        await asyncio.sleep(0.05)
+
+    assert len(written) == 2, "both events must reach the sink"
+    assert written[0].arguments is None, "the unserializable one is recorded as None"
+    assert written[1].arguments == {"text": "kept"}, "the healthy one is untouched"

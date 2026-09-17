@@ -41,7 +41,7 @@ Issues = "https://github.com/zentered-studios/mcpsignals/issues"
 dev = [
     "pytest>=8.3",
     "pytest-asyncio>=0.24", # required by asyncio_mode = "auto" below
-    "ruff>=0.15,<0.16",     # single source of truth for the version CI uses
+    "ruff>=0.15,<0.17",     # single source of truth for the version CI uses
 ]
 
 [tool.hatch.build.targets.wheel]

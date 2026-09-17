@@ -56,6 +56,7 @@ server = MCPServer("my-server")
 # With no `sinks=`, Python defaults to the console sink.
 instrument(server, server_name="my-server", server_version="1.0.0")
 
+
 @server.tool()
 def search(query: str) -> str:
     """Search something."""

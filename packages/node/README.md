@@ -92,14 +92,18 @@ returning:
 
 ```ts
 import { McpServer } from '@modelcontextprotocol/server';
-import { instrument, consoleSink } from 'mcpsignals';
+import { instrument, d1Sink } from 'mcpsignals';
+
+interface Env {
+  DB: D1Database;
+}
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext) {
     const server = new McpServer({ name: 'my-server', version: '1.0.0' });
     const { flush } = instrument(server, {
       serverName: 'my-server',
-      sinks: [consoleSink()],
+      sinks: [d1Sink(env.DB)],
       flushIntervalMs: null // manual mode: no timer, no beforeExit listener
     });
 
@@ -113,6 +117,11 @@ export default {
   }
 };
 ```
+
+In manual mode, `instrument()` and `d1Sink` use no Node-only globals, so
+they run on Workers without the `nodejs_compat` compatibility flag.
+`consoleSink()` writes to `process.stdout`, which Workers doesn't provide,
+so use `d1Sink` (or another sink) there.
 
 ### Known limitation: `client_name`/`client_version` will be null
 

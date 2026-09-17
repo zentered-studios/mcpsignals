@@ -57,6 +57,62 @@ instrument(server, {
 See the root README's redaction section before enabling `redaction.allow`
 to record real argument values.
 
+## Identity: `user_id` and `org_id`
+
+`resolveIdentity` is the only thing that ever fills in `user_id` and
+`org_id`. Without it both stay null on every event.
+
+```ts
+instrument(server, {
+  serverName: 'my-server',
+  sinks: [consoleSink()],
+  resolveIdentity: ({ sessionId }) => {
+    const account = lookUpAccount(sessionId); // your auth layer, not ours
+    return account && { userId: account.id, orgId: account.orgId };
+  }
+});
+```
+
+It receives `{ sessionId }` and returns `{ userId?, orgId? }`, `undefined`,
+or a promise of either. Returning nothing records a null identity, which is
+what the column means for an anonymous call.
+
+It runs **after** your handler settles, so a slow resolver never lands in
+`duration_ms` (wall time from call start to response, per
+[`schema/events.md`](../../schema/events.md)). A resolver that throws or
+rejects is logged once and costs you the identity on that event, nothing
+else: the event is still recorded, and your handler's result or exception
+reaches the client untouched.
+
+`sessionId` here comes from the transport context only. With intent capture
+on, a calling agent can supply its own `session_id`, and the event records
+that value while the resolver still sees `undefined` for it. On a stdio
+transport, where there is no transport session id, that means the event can
+carry a session id the resolver never saw. Do not key identity off
+`sessionId` alone if you rely on intent-capture session ids.
+
+## Buffering and flush timing
+
+Events are batched in memory rather than written one per call.
+`bufferSize` (default 20) flushes after that many events; `flushIntervalMs`
+(default 5000) flushes on a timer. Whichever comes first wins, plus a
+best-effort flush on `beforeExit`.
+
+```ts
+instrument(server, {
+  serverName: 'my-server',
+  sinks: [postgresSink()],
+  bufferSize: 100, // fewer, larger writes
+  flushIntervalMs: 10_000
+});
+```
+
+Raising `bufferSize` trades memory and worst-case loss for fewer round
+trips: a crash loses whatever is still buffered, and a sink holds the whole
+batch in memory while it writes.
+
+`flushIntervalMs: null` is manual mode, covered below.
+
 ## Shutting instrumentation down
 
 `instrument()` returns a handle:

@@ -255,10 +255,25 @@ def instrument(
 
             # Guarded on its own so a broken redactor still leaves an event
             # behind, recorded with `arguments=None` rather than the raw args.
+            #
+            # The `json.dumps` is not a formatting step, it is a proof that the
+            # value survives encoding. Every sink re-serializes `arguments` on
+            # its way out (`json.dumps` in postgres and bigquery,
+            # `dataclasses.asdict` then `json.dumps` in the console sink), and a
+            # value that cannot be encoded makes that whole `write()` raise.
+            # EventBuffer catches it, so the server is never affected, but the
+            # entire batch goes with it - including the unrelated events flushed
+            # alongside. Proving it here costs one event's `arguments` instead of
+            # a whole flush. Deliberately strict (no `default=`): it has to match
+            # the least forgiving sink, not the most.
+            #
+            # Only a `redaction.redactor` or a `redaction.allow` entry can
+            # produce such a value; the default type-only markers always encode.
             arguments = None
             if capture_arguments:
                 try:
                     arguments = redact_arguments(clean_arguments, redaction)
+                    json.dumps(arguments)
                 except Exception as exc:  # noqa: BLE001 - never fall back to the raw arguments
                     _warn_once("redaction", exc)
                     arguments = None

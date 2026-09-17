@@ -39,14 +39,18 @@ function toolCallRow(event: ToolCallEvent): unknown[] {
 }
 
 /**
+ * Postgres sends a statement's bind-parameter count as an unsigned 16-bit
+ * integer on the wire, so 65535 is a hard protocol ceiling, not a tunable.
+ * A statement over it is rejected outright, which would cost the entire
+ * flush rather than one row.
+ */
+const MAX_BIND_PARAMETERS = 65535;
+
+/**
  * Builds one `insert into <table> (cols) values ($1,...),($n+1,...),...`
  * statement for all rows, with a flat bind array in column order. `pg`
  * encodes each bound value itself (Date -> timestamp string, plain object ->
  * JSON), so rows are passed through as-is.
- *
- * Postgres caps a statement at 65535 bind parameters; at 19 columns that is
- * 3449 rows per statement, far above the default buffer size of 20, so the
- * rows are not chunked.
  */
 function buildMultiRowInsert(
   table: string,
@@ -65,11 +69,38 @@ function buildMultiRowInsert(
 }
 
 /**
+ * Splits `rows` into as few statements as the bind-parameter ceiling allows.
+ * At 19 tool_call columns that is 3449 rows each, far above the default
+ * buffer size of 20 - but `bufferSize` is a public option, so a batch can
+ * arrive well above it, and an unchunked statement would be rejected and
+ * take the whole flush with it.
+ *
+ * Chunks are issued as separate statements, not wrapped in a transaction:
+ * this sink already issues one statement per table without one, so a
+ * mid-flush failure can leave earlier rows committed either way. Events are
+ * append-only observations, so a partial flush is strictly better than none.
+ */
+function buildChunkedInserts(
+  table: string,
+  columns: readonly string[],
+  rows: unknown[][]
+): { text: string; values: unknown[] }[] {
+  const rowsPerStatement = Math.max(1, Math.floor(MAX_BIND_PARAMETERS / columns.length));
+  const statements: { text: string; values: unknown[] }[] = [];
+  for (let i = 0; i < rows.length; i += rowsPerStatement) {
+    statements.push(buildMultiRowInsert(table, columns, rows.slice(i, i + rowsPerStatement)));
+  }
+  return statements;
+}
+
+/**
  * Writes rows into the table defined by schema/events.md's Postgres DDL.
  * Requires the optional peer dependency `pg` — dynamically imported so it
  * isn't required unless this sink is actually used.
  *
- * Each `write()` issues at most one multi-row insert for the batch.
+ * Each `write()` issues one multi-row insert for the batch. A batch whose
+ * rows would exceed Postgres's 65535 bind-parameter ceiling is split across
+ * as few additional statements as that ceiling allows.
  */
 export function postgresSink(options: PostgresSinkOptions = {}): Sink {
   const toolCallTable = options.toolCallTable ?? 'mcpsignals_tool_call';
@@ -102,8 +133,18 @@ export function postgresSink(options: PostgresSinkOptions = {}): Sink {
       }
 
       const pool = await getPool();
-      const { text, values } = buildMultiRowInsert(toolCallTable, TOOL_CALL_COLUMNS, toolCallRows);
-      await pool.query(text, values);
+      const statements = buildChunkedInserts(toolCallTable, TOOL_CALL_COLUMNS, toolCallRows);
+
+      // Sequential on purpose, so `no-await-in-loop` is disabled rather than
+      // satisfied with `Promise.all`. Chunking only happens on batches large
+      // enough to need it, and firing every chunk at once would claim that
+      // many pool connections simultaneously - a telemetry flush competing
+      // with the host application's own queries for the pool is exactly the
+      // kind of interference this library must never cause.
+      for (const { text, values } of statements) {
+        // oxlint-disable-next-line no-await-in-loop
+        await pool.query(text, values);
+      }
     }
   };
 }

@@ -74,6 +74,28 @@ function byteLength(value: unknown): number {
   return encoder.encode(JSON.stringify(value) ?? '').length;
 }
 
+/**
+ * Proves the recorded arguments survive JSON encoding, or throws.
+ *
+ * Every sink re-serializes `arguments` on its way out - `JSON.stringify` in
+ * console/d1/bigquery, `pg`'s own jsonb encoder in postgres - and a value
+ * that cannot be encoded makes that whole `write()` throw. EventBuffer
+ * catches the throw, so the server is never affected, but the entire batch
+ * is dropped with it, including the unrelated events flushed alongside.
+ * Checking here means one bad value costs one event's `arguments`, never a
+ * whole flush.
+ *
+ * Only a `redaction.redactor` or a `redaction.allow` entry can produce such
+ * a value: the default type-only markers are always encodable. The extra
+ * `JSON.stringify` therefore runs only when argument capture is on, and not
+ * at all on the default path, where `value` is null.
+ */
+function assertSerializable(value: Record<string, unknown> | null): Record<string, unknown> | null {
+  if (value === null) return null;
+  JSON.stringify(value); // throws on a BigInt, a circular reference, or a throwing toJSON
+  return value;
+}
+
 function extractErrorMessage(result: ToolResultLike): string | null {
   const text = (result.content ?? [])
     .filter(
@@ -226,7 +248,10 @@ export function instrument(server: McpServer, options: InstrumentOptions): Instr
         const clientVersion = boundedString(clientInfo?.version, MAX_IDENTIFIER_LENGTH);
         const recordedArguments = guarded(
           'redaction',
-          () => applyRedaction(cleanArgs, options.redaction, options.captureArguments),
+          () =>
+            assertSerializable(
+              applyRedaction(cleanArgs, options.redaction, options.captureArguments)
+            ),
           null
         );
         buffer.push({

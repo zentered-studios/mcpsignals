@@ -70,17 +70,26 @@ function makeRecordingTracerProvider() {
         name,
         options,
         context: context ?? otel.context.active(),
-        endTime: undefined
+        endTime: undefined,
+        // Attributes set after creation, plus the status and events, so the
+        // tests below can assert the full span the sink produces rather than
+        // only its constructor arguments.
+        setAttributes: {},
+        status: undefined,
+        events: []
       };
       spans.push(record);
       return {
-        setAttribute() {
+        setAttribute(key, value) {
+          record.setAttributes[key] = value;
           return this;
         },
-        setStatus() {
+        setStatus(status) {
+          record.status = status;
           return this;
         },
-        addEvent() {
+        addEvent(eventName, attributes) {
+          record.events.push({ name: eventName, attributes });
           return this;
         },
         end(endTime) {
@@ -139,4 +148,119 @@ test('each tool_call span starts from the root context, not the ambient one', as
     assert.equal(span.options.startTime, event.ts);
     assert.deepEqual(span.endTime, new Date(event.ts.getTime() + event.duration_ms));
   }
+});
+
+// The attribute mapping is the sink's whole product, and every `gen_ai.*` /
+// `mcp.*` name below is Development status in the OTel GenAI semantic
+// conventions, so it moves. These tests pin what we emit today; a
+// convention change should make them fail loudly rather than drift silently.
+
+async function spansFor(events) {
+  const before = provider.spans.length;
+  await otlpSink().write(events);
+  return provider.spans.slice(before);
+}
+
+test('a fully populated event maps to the documented attribute set', async () => {
+  const [span] = await spansFor([
+    makeToolCallEvent({
+      tool_name: 'search',
+      server_name: 'my-server',
+      server_version: '1.2.3',
+      session_id: 'sess-1',
+      agent_id: 'agent-1',
+      client_name: 'my-client',
+      client_version: '9.9',
+      user_id: 'user-1',
+      org_id: 'org-1',
+      transport: 'http',
+      intent: 'user asked',
+      arguments: { a: 1 },
+      request_bytes: 11,
+      response_bytes: 22
+    })
+  ]);
+
+  assert.deepEqual(span.options.attributes, {
+    'gen_ai.operation.name': 'execute_tool',
+    'gen_ai.tool.name': 'search',
+    'mcp.session.id': 'sess-1',
+    'gen_ai.tool.call.arguments': '{"a":1}',
+    'mcpsignals.intent': 'user asked',
+    'mcpsignals.agent.id': 'agent-1',
+    'enduser.id': 'user-1',
+    'mcpsignals.org.id': 'org-1',
+    'mcpsignals.server.name': 'my-server',
+    'mcpsignals.server.version': '1.2.3',
+    'mcpsignals.client.name': 'my-client',
+    'mcpsignals.client.version': '9.9',
+    'mcpsignals.transport': 'http',
+    'mcpsignals.request.bytes': 11,
+    'mcpsignals.response.bytes': 22
+  });
+});
+
+test('null fields are omitted rather than emitted as null attributes', async () => {
+  // A null attribute value is not valid in OTel and an exporter may drop the
+  // whole span over one. The default event has null everywhere optional.
+  const [span] = await spansFor([makeToolCallEvent()]);
+
+  assert.deepEqual(Object.keys(span.options.attributes).toSorted(), [
+    'gen_ai.operation.name',
+    'gen_ai.tool.name',
+    'mcpsignals.request.bytes',
+    'mcpsignals.response.bytes',
+    'mcpsignals.server.name'
+  ]);
+  for (const value of Object.values(span.options.attributes)) {
+    assert.notEqual(value, null);
+  }
+});
+
+test('a successful call gets status OK and no exception event', async () => {
+  const [span] = await spansFor([makeToolCallEvent({ success: true })]);
+
+  assert.equal(span.status.code, otel.SpanStatusCode.OK);
+  assert.deepEqual(span.events, []);
+  assert.deepEqual(span.setAttributes, {});
+});
+
+test('a failed call gets status ERROR, error.type and an exception event', async () => {
+  const [span] = await spansFor([
+    makeToolCallEvent({
+      success: false,
+      error_kind: 'not_found',
+      error_message: 'record with that id was not found'
+    })
+  ]);
+
+  assert.equal(span.status.code, otel.SpanStatusCode.ERROR);
+  assert.equal(span.status.message, 'record with that id was not found');
+  assert.equal(span.setAttributes['error.type'], 'tool_error');
+  assert.equal(span.options.attributes['mcpsignals.error.kind'], 'not_found');
+  assert.deepEqual(span.events, [
+    {
+      name: 'exception',
+      attributes: { 'exception.message': 'record with that id was not found' }
+    }
+  ]);
+});
+
+test('a failure with no message still gets status ERROR but no exception event', async () => {
+  const [span] = await spansFor([
+    makeToolCallEvent({ success: false, error_kind: null, error_message: null })
+  ]);
+
+  assert.equal(span.status.code, otel.SpanStatusCode.ERROR);
+  assert.equal(span.status.message, undefined);
+  assert.deepEqual(span.events, [], 'no message means nothing to record as an exception');
+});
+
+test('span start and end come from the event, not from flush time', async () => {
+  // Events are written in batches, potentially long after the call happened.
+  const ts = new Date('2026-09-01T23:25:24.000Z');
+  const [span] = await spansFor([makeToolCallEvent({ ts, duration_ms: 1234 })]);
+
+  assert.equal(span.options.startTime, ts);
+  assert.deepEqual(span.endTime, new Date(ts.getTime() + 1234));
 });

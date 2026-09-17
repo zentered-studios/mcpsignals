@@ -1,0 +1,26 @@
+<task-notification>
+<task-id>b92ku7vaj</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-patrick-Sites-mcpsignals/dd92683a-4dc7-4dff-92fe-9dfdad3bc3ba/tasks/b92ku7vaj.output</output-file>
+<status>completed</status>
+<summary>Monitor "Poll PR 66 CI checks until nothing is pending" stream ended</summary>
+<event>pending=0
+CodeQL	pass	3s	https://github.com/zentered-studios/mcpsignals/runs/105414847484
+analyze (javascript-typescript)	pass	1m6s	https://github.com/zentered-studios/mcpsignals/actions/runs/35284786055/job/105414624280
+analyze (python)	pass	58s	https://github.com/zentered-studios/mcpsignals/actions/runs/35284786055/job/105414624069
+check (20)	pass	24s	https://github.com/zentered-studios/mcpsignals/actions/runs/35284786115/job/105414624057
+check (24)	pass	35s	https://github.com/zentered-studios/mcpsignals/actions/runs/35284786115/job/105414624000
+dependency-review	pass	7s	https://github.com/zentered-studios/mcpsignals/actions/runs/35284786019/job/105414624009
+python-lint	pass	8s	https://github.com/zentered-studios/mcpsignals/actions/runs/35284786115/job/105414623829
+python-test (3.10)	pass	16s	https://github.com/zentered-studios/mcpsignals/actions/runs/35284786115/job/105414623986
+python-test (3.13)	pass	16s	https://github.com/zentered-studios/mcpsignals/actions/runs/35284786115/job/105414624192</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+all merged, https://github.com/zentered-studios/mcpsignals/pull/69 has conflicts
+
+---
+
+Pin typescript back to ^5.9 for this PR

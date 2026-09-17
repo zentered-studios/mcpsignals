@@ -1,0 +1,31 @@
+{
+  "cli_version": "0.10.6",
+  "checkpoint_id": "01M2PH0T7KPPBEN4JA5X7ZTTB2",
+  "strategy": "manual-commit",
+  "branch": "fix/issue-30-workers-text-encoder-v2",
+  "checkpoints_count": 2,
+  "files_touched": null,
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 1788,
+    "cache_creation_tokens": 1493793,
+    "cache_read_tokens": 44375765,
+    "output_tokens": 179246,
+    "api_call_count": 109,
+    "subagent_tokens": {
+      "input_tokens": 16264,
+      "cache_creation_tokens": 3445851,
+      "cache_read_tokens": 95424102,
+      "output_tokens": 675327,
+      "api_call_count": 1057
+    }
+  }
+}

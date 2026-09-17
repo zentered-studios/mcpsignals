@@ -41,6 +41,10 @@ instrument(server, {
 server.registerTool('search', { /* ... */ }, async args => { /* ... */ });
 ```
 
+On a stdio transport, pass `consoleSink({ stream: process.stderr })`. stdout
+is the MCP wire there, and `StdioServerTransport` writes to the same
+`process.stdout` the default sink uses. See [Sinks](#sinks).
+
 **Python**
 
 ```python
@@ -126,7 +130,27 @@ mean "record everything":
 
 Node.js imports these from `mcpsignals`, Python from `mcpsignals.sinks`;
 install only the dependency for the sink you use. `console` writes JSON
-lines to stdout and is what Python uses when you pass no `sinks` at all.
+lines to stdout by default and is what Python uses when you pass no `sinks`
+at all. On a stdio transport it must write to stderr instead. The
+[MCP spec](https://modelcontextprotocol.io/specification/2025-06-18/basic/transports#stdio)
+says: "The server MUST NOT write anything to its `stdout` that is not a valid
+MCP message" and "The server MAY write UTF-8 strings to its standard error
+(`stderr`) for logging purposes." Pass the stream explicitly:
+
+```ts
+sinks: [consoleSink({ stream: process.stderr })]
+```
+
+```python
+import sys
+from mcpsignals.sinks import ConsoleSink
+
+instrument(server, server_name="my-server", sinks=[ConsoleSink(stream=sys.stderr)])
+```
+
+The default stays stdout so HTTP servers and log collectors that read
+stdout keep working unchanged.
+
 Postgres, BigQuery, and D1 write the tables in
 [`schema/events.md`](schema/events.md). OTLP emits one span per tool call
 using whatever `TracerProvider` your app already configured (standard OTel

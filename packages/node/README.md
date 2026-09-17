@@ -39,6 +39,10 @@ instrument(server, {
 server.registerTool(/* ...as normal, nothing else changes... */);
 ```
 
+On a stdio transport pass `consoleSink({ stream: process.stderr })`, because
+the MCP spec reserves stdout for protocol messages and `StdioServerTransport`
+writes to the same `process.stdout` the default sink uses.
+
 Argument capture is off by default. Turn it on and record only key names
 and value types with:
 

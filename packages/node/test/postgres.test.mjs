@@ -179,3 +179,64 @@ test('respects custom table names', async () => {
   assert.ok(pool.calls.some(c => /insert into custom_tool_call/.test(c.text)));
   assert.ok(pool.calls.some(c => /insert into custom_summary/.test(c.text)));
 });
+
+// Postgres rejects a statement carrying more than 65535 bind parameters
+// (the wire protocol sends the count as an unsigned 16-bit integer). At 19
+// columns that ceiling is 3449 tool_call rows, which the default bufferSize
+// of 20 never approaches - but `bufferSize` is a public option, so a batch
+// can arrive well above it. Unchunked, the statement was rejected outright
+// and the whole flush was lost.
+const PG_MAX_BIND_PARAMETERS = 65535;
+
+test('a batch above the bind-parameter ceiling is split into several statements', async () => {
+  const pool = makeFakePool();
+  const sink = postgresSink({ pool });
+  const rows = 4000; // 4000 * 19 = 76000 bind parameters, over the ceiling
+
+  await sink.write(Array.from({ length: rows }, (_, i) => makeToolCallEvent({ duration_ms: i })));
+
+  assert.ok(pool.calls.length > 1, 'the batch must not go out as one statement');
+  for (const call of pool.calls) {
+    assert.ok(
+      call.values.length <= PG_MAX_BIND_PARAMETERS,
+      `a statement carried ${call.values.length} bind parameters, over the ${PG_MAX_BIND_PARAMETERS} ceiling`
+    );
+    // Each statement binds its own parameters from $1, not a continuation
+    // of the previous statement's numbering.
+    assert.match(call.text, /values \(\$1,/);
+    const highest = Math.max(...call.text.match(/\$(\d+)/g).map(p => Number(p.slice(1))));
+    assert.equal(highest, call.values.length, 'placeholders must cover exactly the bound values');
+  }
+
+  // Nothing is dropped on the way: every row still reaches the database.
+  const written = pool.calls.reduce((total, call) => total + call.values.length, 0);
+  assert.equal(written, rows * TOOL_CALL_COLUMNS);
+});
+
+test('a batch at exactly the bind-parameter ceiling still goes out as one statement', async () => {
+  const pool = makeFakePool();
+  const sink = postgresSink({ pool });
+  const rows = Math.floor(PG_MAX_BIND_PARAMETERS / TOOL_CALL_COLUMNS); // 3449
+
+  await sink.write(Array.from({ length: rows }, () => makeToolCallEvent()));
+
+  assert.equal(pool.calls.length, 1, 'chunking must not kick in below the ceiling');
+  assert.equal(pool.calls[0].values.length, rows * TOOL_CALL_COLUMNS);
+});
+
+test('session_summary rows are chunked on their own column count', async () => {
+  const pool = makeFakePool();
+  const sink = postgresSink({ pool });
+  const rows = 7000; // 7000 * 10 = 70000 bind parameters, over the ceiling
+
+  await sink.write(
+    Array.from({ length: rows }, (_, i) => makeSessionSummaryEvent({ session_id: `s-${i}` }))
+  );
+
+  assert.ok(pool.calls.length > 1);
+  for (const call of pool.calls) {
+    assert.ok(call.values.length <= PG_MAX_BIND_PARAMETERS);
+  }
+  const written = pool.calls.reduce((total, call) => total + call.values.length, 0);
+  assert.equal(written, rows * SESSION_SUMMARY_COLUMNS);
+});

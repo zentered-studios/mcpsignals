@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { createMcpFastifyApp } from '@modelcontextprotocol/fastify';
 import { toNodeHandler } from '@modelcontextprotocol/node';
 import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
@@ -6,17 +7,29 @@ import * as z from 'zod/v4';
 
 const notes: string[] = [];
 
-// createMcpHandler builds a fresh McpServer per request, so instrument()
-// runs inside the factory too - it's still the one required call, it just
-// runs once per instance rather than once at module load.
+// The MCP HTTP handler builds a fresh McpServer per request (see the SDK's
+// "per-request factory" model), so instrument() runs inside the factory too
+// - it's still the one required call, it just runs once per instance.
+//
+// flushIntervalMs: null skips the timer + beforeExit listener a per-request
+// EventBuffer would otherwise leave behind forever (default mode is meant for
+// one long-lived buffer, not one created per request). The factory has no way
+// to hand its flush() back to the route handler directly, so this
+// AsyncLocalStorage carries it out to the finally block in the /mcp route
+// below.
+const requestFlush = new AsyncLocalStorage<{ flush?: () => Promise<void> }>();
+
 const handler = createMcpHandler(() => {
   const server = new McpServer({ name: 'notes', version: '1.0.0' });
 
-  instrument(server, {
+  const { flush } = instrument(server, {
     serverName: 'notes',
     serverVersion: '1.0.0',
-    sinks: [consoleSink()]
+    sinks: [consoleSink()],
+    flushIntervalMs: null
   });
+  const store = requestFlush.getStore();
+  if (store) store.flush = flush;
 
   server.registerTool(
     'add-note',
@@ -32,7 +45,16 @@ const handler = createMcpHandler(() => {
 
 const app = createMcpFastifyApp();
 const node = toNodeHandler(handler);
-app.all('/mcp', (request, reply) => node(request.raw, reply.raw, request.body));
+app.all('/mcp', (request, reply) => {
+  const store: { flush?: () => Promise<void> } = {};
+  return requestFlush.run(store, async () => {
+    try {
+      await node(request.raw, reply.raw, request.body);
+    } finally {
+      await store.flush?.();
+    }
+  });
+});
 
 const port = 3001;
 app.listen({ port }, () => {

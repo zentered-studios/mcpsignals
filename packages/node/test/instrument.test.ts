@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { z } from 'zod';
 import { McpServer, InMemoryTransport, createMcpHandler } from '@modelcontextprotocol/server';
 import { Client } from '@modelcontextprotocol/client';
-import { instrument } from '../dist/index.mjs';
-import { createInstrumentedServer, connectClient } from './helpers.mjs';
+import { instrument, type AnyEvent, type InstrumentOptions } from 'mcpsignals';
+import { createInstrumentedServer, connectClient, textOf } from './helpers.js';
 
 test('success path: records a tool_call event with the right shape', async () => {
   const { server, events } = createInstrumentedServer();
@@ -16,7 +16,7 @@ test('success path: records a tool_call event with the right shape', async () =>
   const client = await connectClient(server);
 
   const result = await client.callTool({ name: 'add', arguments: { a: 2, b: 3 } });
-  assert.equal(result.content[0].text, '5');
+  assert.equal(textOf(result), '5');
 
   await new Promise(resolve => setTimeout(resolve, 10)); // let the buffer's async flush land
   assert.equal(events.length, 1);
@@ -38,8 +38,8 @@ test('success path: records a tool_call event with the right shape', async () =>
 });
 
 test('flush handle: instrument() returns { server, flush } and flush() delivers buffered events immediately', async () => {
-  const events = [];
-  const capturingSink = { write: async batch => void events.push(...batch) };
+  const events: AnyEvent[] = [];
+  const capturingSink = { write: async (batch: AnyEvent[]) => void events.push(...batch) };
   const server = new McpServer({ name: 'test-server', version: '1.0.0' });
   const handle = instrument(server, {
     serverName: 'test-server',
@@ -99,7 +99,7 @@ test('error path: a handler-returned isError:true result is recorded as a failed
 
   const result = await client.callTool({ name: 'reject', arguments: {} });
   assert.equal(result.isError, true);
-  assert.equal(result.content[0].text, 'validation failed: missing field');
+  assert.equal(textOf(result), 'validation failed: missing field');
 
   await new Promise(resolve => setTimeout(resolve, 10));
   assert.equal(events[0].success, false);
@@ -108,7 +108,7 @@ test('error path: a handler-returned isError:true result is recorded as a failed
 
 test('transparency: the real handler receives exactly the arguments it would have without the library', async () => {
   const { server } = createInstrumentedServer();
-  let receivedArgs;
+  let receivedArgs: unknown;
   server.registerTool('echo', { inputSchema: z.object({ value: z.string() }) }, async args => {
     receivedArgs = args;
     return { content: [{ type: 'text', text: 'ok' }] };
@@ -183,7 +183,7 @@ test('no inputSchema: the handler result reaches the client and one success even
 
   const result = await client.callTool({ name: 'ping', arguments: {} });
   assert.equal(result.isError, undefined);
-  assert.equal(result.content[0].text, 'pong');
+  assert.equal(textOf(result), 'pong');
 
   await new Promise(resolve => setTimeout(resolve, 10));
   assert.equal(events.length, 1);
@@ -200,7 +200,7 @@ test('no inputSchema: the handler result reaches the client and one success even
 
 test('no inputSchema: the handler receives the ctx the SDK passes, not the arguments', async () => {
   const { server } = createInstrumentedServer();
-  let received;
+  let received: unknown;
   server.registerTool('whoami', { description: 'no schema' }, async ctx => {
     received = ctx;
     return { content: [{ type: 'text', text: 'ok' }] };
@@ -209,8 +209,10 @@ test('no inputSchema: the handler receives the ctx the SDK passes, not the argum
 
   await client.callTool({ name: 'whoami', arguments: { ignored: true } });
   assert.equal(typeof received, 'object');
-  assert.ok(received !== null);
-  assert.ok(!('ignored' in received), 'handler must not receive the raw arguments as ctx');
+  assert.ok(
+    typeof received === 'object' && received !== null && !('ignored' in received),
+    'handler must not receive the raw arguments as ctx'
+  );
 });
 
 test('no inputSchema: a thrown error is recorded as a failed event and the client still gets isError:true', async () => {
@@ -222,7 +224,7 @@ test('no inputSchema: a thrown error is recorded as a failed event and the clien
 
   const result = await client.callTool({ name: 'boom-noschema', arguments: {} });
   assert.equal(result.isError, true);
-  assert.equal(result.content[0].text, 'widget not found');
+  assert.equal(textOf(result), 'widget not found');
 
   await new Promise(resolve => setTimeout(resolve, 10));
   assert.equal(events.length, 1);
@@ -241,14 +243,16 @@ test('no inputSchema + intentCapture: the injected schema path still works and r
 
   const { tools } = await client.listTools();
   const advertised = tools.find(t => t.name === 'ping-intent');
-  assert.ok(advertised.inputSchema.properties.intent, 'intent field is injected into the schema');
+  assert.ok(advertised, 'the ping-intent tool must be advertised');
+  const properties = advertised.inputSchema.properties as Record<string, unknown> | undefined;
+  assert.ok(properties?.intent, 'intent field is injected into the schema');
 
   const result = await client.callTool({
     name: 'ping-intent',
     arguments: { intent: 'health check', session_id: 's-1' }
   });
   assert.equal(result.isError, undefined);
-  assert.equal(result.content[0].text, 'pong');
+  assert.equal(textOf(result), 'pong');
 
   await new Promise(resolve => setTimeout(resolve, 10));
   assert.equal(events.length, 1);
@@ -261,9 +265,9 @@ test('no inputSchema + intentCapture: the injected schema path still works and r
  * `close()` tests build their own server so each one can measure the
  * `beforeExit` listener count around exactly one `instrument()` call.
  */
-function createClosableServer(instrumentOptions = {}) {
-  const events = [];
-  const capturingSink = { write: async batch => void events.push(...batch) };
+function createClosableServer(instrumentOptions: Partial<InstrumentOptions> = {}) {
+  const events: AnyEvent[] = [];
+  const capturingSink = { write: async (batch: AnyEvent[]) => void events.push(...batch) };
   const server = new McpServer({ name: 'test-server', version: '1.0.0' });
   const handle = instrument(server, {
     serverName: 'test-server',
@@ -351,13 +355,13 @@ test('telemetry failure: a throwing redactor never reaches the client; the event
       arguments: { email: 'jane@example.com' }
     });
     assert.equal(first.isError, undefined);
-    assert.equal(first.content[0].text, 'ok');
+    assert.equal(textOf(first), 'ok');
     const second = await client.callTool({
       name: 'lookup-redact',
       arguments: { email: 'jane@example.com' }
     });
     assert.equal(second.isError, undefined);
-    assert.equal(second.content[0].text, 'ok');
+    assert.equal(textOf(second), 'ok');
 
     await new Promise(resolve => setTimeout(resolve, 10));
     assert.equal(events.length, 2);
@@ -388,7 +392,7 @@ test('telemetry failure: a throwing resolveIdentity never reaches the client; th
 
     const first = await client.callTool({ name: 'whoami-id', arguments: {} });
     assert.equal(first.isError, undefined);
-    assert.equal(first.content[0].text, 'ok');
+    assert.equal(textOf(first), 'ok');
     const second = await client.callTool({ name: 'whoami-id', arguments: {} });
     assert.equal(second.isError, undefined);
 
@@ -418,7 +422,7 @@ test('telemetry failure: a BigInt argument cannot be JSON-serialized, but the ha
 
     const result = await client.callTool({ name: 'big', arguments: { n: 21n } });
     assert.equal(result.isError, undefined);
-    assert.equal(result.content[0].text, '42');
+    assert.equal(textOf(result), '42');
 
     await new Promise(resolve => setTimeout(resolve, 10));
     assert.equal(events.length, 1);
@@ -435,7 +439,7 @@ test('telemetry failure: a BigInt argument cannot be JSON-serialized, but the ha
 // the timed window. `ts` stays anchored at call start.
 
 test('duration_ms excludes resolveIdentity: a 200 ms resolver plus an instant tool records well under 100 ms', async () => {
-  const order = [];
+  const order: string[] = [];
   const { server, events } = createInstrumentedServer({
     resolveIdentity: async () => {
       await new Promise(resolve => setTimeout(resolve, 200));
@@ -450,7 +454,7 @@ test('duration_ms excludes resolveIdentity: a 200 ms resolver plus an instant to
   const client = await connectClient(server);
 
   const result = await client.callTool({ name: 'instant', arguments: {} });
-  assert.equal(result.content[0].text, 'ok');
+  assert.equal(textOf(result), 'ok');
 
   await new Promise(resolve => setTimeout(resolve, 10));
   assert.equal(events.length, 1);
@@ -525,7 +529,7 @@ test('client_name and client_version within the cap reach the sink unchanged', a
 // the sync path and that the resolver sees the call's session id slot.
 
 test('resolveIdentity: a synchronous resolver lands user_id and org_id on the event', async () => {
-  const seen = [];
+  const seen: { sessionId?: string }[] = [];
   const { server, events } = createInstrumentedServer({
     resolveIdentity: ctx => {
       seen.push(ctx);
@@ -538,7 +542,7 @@ test('resolveIdentity: a synchronous resolver lands user_id and org_id on the ev
   const client = await connectClient(server);
 
   const result = await client.callTool({ name: 'whoami-sync', arguments: {} });
-  assert.equal(result.content[0].text, 'ok');
+  assert.equal(textOf(result), 'ok');
 
   await new Promise(resolve => setTimeout(resolve, 10));
   assert.equal(events.length, 1);
@@ -555,9 +559,11 @@ test('resolveIdentity: a synchronous resolver lands user_id and org_id on the ev
 // example READMEs send with curl, so the branch is exercised end to end.
 
 test('transport: a tools/call over the SDK HTTP handler is recorded as transport: "http"', async () => {
-  const events = [];
-  const capturingSink = { write: async batch => void events.push(...batch) };
-  let flush;
+  const events: AnyEvent[] = [];
+  const capturingSink = { write: async (batch: AnyEvent[]) => void events.push(...batch) };
+  // Definite assignment: set synchronously by the factory below, before any
+  // request (and so any read of `flush`) can reach it.
+  let flush!: () => Promise<void>;
   const handler = createMcpHandler(() => {
     // Per-request factory, as in examples/node-express/server.ts: a fresh
     // McpServer, instrumented in manual flush mode, per HTTP request.
@@ -634,6 +640,7 @@ test('byte sizes: request_bytes/response_bytes are UTF-8 byte counts of the JSON
 test('runtime portability: a tool call succeeds with globalThis.Buffer absent (Workers without nodejs_compat)', async () => {
   const savedBuffer = globalThis.Buffer;
   try {
+    // @ts-expect-error - simulating a runtime where Buffer was never defined
     delete globalThis.Buffer;
     assert.equal(
       typeof Buffer,
@@ -649,7 +656,7 @@ test('runtime portability: a tool call succeeds with globalThis.Buffer absent (W
 
     const result = await client.callTool({ name: 'ping', arguments: {} });
     assert.notEqual(result.isError, true, 'the wrapper must not throw when Buffer is undefined');
-    assert.equal(result.content[0].text, 'pong');
+    assert.equal(textOf(result), 'pong');
 
     await new Promise(resolve => setTimeout(resolve, 10));
     assert.equal(events.length, 1);

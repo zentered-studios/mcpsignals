@@ -35,7 +35,8 @@
   "scripts": {
     "build": "tsup",
     "pretest": "npm run build",
-    "test": "node --test test/*.test.mjs"
+    "test": "tsx --test test/*.test.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.test.json"
   },
   "peerDependencies": {
     "@modelcontextprotocol/server": "^2.0.0",
@@ -64,6 +65,7 @@
     "@types/pg": "^8.11.0",
     "pg": "^8.11.0",
     "tsup": "^8.3.0",
+    "tsx": "^4.23.13",
     "typescript": "^5.7.0",
     "zod": "^4.2.0"
   },

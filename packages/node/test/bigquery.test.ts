@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { bigquerySink } from '../dist/index.mjs';
+import { bigquerySink, type ToolCallEvent } from 'mcpsignals';
 
-function makeToolCallEvent(overrides = {}) {
+function makeToolCallEvent(overrides: Partial<ToolCallEvent> = {}): ToolCallEvent {
   return {
     event_type: 'tool_call',
     ts: new Date('2026-09-01T23:25:24.000Z'),
@@ -28,18 +28,24 @@ function makeToolCallEvent(overrides = {}) {
   };
 }
 
+interface RecordedInsert {
+  dataset: string;
+  table: string;
+  rows: Record<string, unknown>[];
+}
+
 // A minimal fake matching the @google-cloud/bigquery surface the sink relies
 // on: client.dataset(name).table(name).insert(rows). Each insert() call is
 // recorded with the dataset and table it targeted.
 function makeFakeClient() {
-  const inserts = [];
+  const inserts: RecordedInsert[] = [];
   return {
     inserts,
-    dataset(datasetName) {
+    dataset(datasetName: string) {
       return {
-        table(tableName) {
+        table(tableName: string) {
           return {
-            async insert(rows) {
+            async insert(rows: Record<string, unknown>[]) {
               inserts.push({ dataset: datasetName, table: tableName, rows });
             }
           };

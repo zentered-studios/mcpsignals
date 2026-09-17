@@ -1,3 +1,5 @@
+import type { UserConfig } from '@commitlint/types';
+
 export default {
   extends: ['@commitlint/config-conventional'],
   rules: {
@@ -9,4 +11,4 @@ export default {
       ['feat', 'fix', 'docs', 'style', 'refactor', 'perf', 'test', 'chore', 'ci', 'build', 'revert']
     ]
   }
-};
+} satisfies UserConfig;

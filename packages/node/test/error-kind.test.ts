@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { classifyError } from '../dist/index.mjs';
+import { classifyError } from 'mcpsignals';
 
 test('error_kind: null when there is no message', () => {
   assert.equal(classifyError(undefined), null);

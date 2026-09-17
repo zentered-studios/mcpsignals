@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { EventBuffer } from '../dist/index.mjs';
+import { EventBuffer, type AnyEvent, type ToolCallEvent } from 'mcpsignals';
 
-function makeEvent(i) {
+function makeEvent(i: number): ToolCallEvent {
   return {
     event_type: 'tool_call',
     ts: new Date(),
@@ -28,8 +28,8 @@ function makeEvent(i) {
 }
 
 test('flushes on the size threshold without waiting for the interval', async () => {
-  const written = [];
-  const sink = { write: async batch => void written.push(...batch) };
+  const written: AnyEvent[] = [];
+  const sink = { write: async (batch: AnyEvent[]) => void written.push(...batch) };
   const buffer = new EventBuffer({ sinks: [sink], bufferSize: 3, flushIntervalMs: 60_000 });
 
   buffer.push(makeEvent(1));
@@ -43,8 +43,8 @@ test('flushes on the size threshold without waiting for the interval', async () 
 });
 
 test('flushes on the interval even under the size threshold', async () => {
-  const written = [];
-  const sink = { write: async batch => void written.push(...batch) };
+  const written: AnyEvent[] = [];
+  const sink = { write: async (batch: AnyEvent[]) => void written.push(...batch) };
   const buffer = new EventBuffer({ sinks: [sink], bufferSize: 100, flushIntervalMs: 20 });
 
   buffer.push(makeEvent(1));
@@ -81,8 +81,8 @@ test('a throwing sink is caught, logged at most once, and never propagates', asy
 
 test('manual mode: flushIntervalMs null never auto-flushes on any interval', t => {
   t.mock.timers.enable({ apis: ['setInterval'] });
-  const written = [];
-  const sink = { write: async batch => void written.push(...batch) };
+  const written: AnyEvent[] = [];
+  const sink = { write: async (batch: AnyEvent[]) => void written.push(...batch) };
   const buffer = new EventBuffer({ sinks: [sink], bufferSize: 100, flushIntervalMs: null });
 
   buffer.push(makeEvent(1));
@@ -93,8 +93,8 @@ test('manual mode: flushIntervalMs null never auto-flushes on any interval', t =
 });
 
 test('manual mode: flushIntervalMs null flushes only when flush() is called explicitly', async () => {
-  const written = [];
-  const sink = { write: async batch => void written.push(...batch) };
+  const written: AnyEvent[] = [];
+  const sink = { write: async (batch: AnyEvent[]) => void written.push(...batch) };
   const buffer = new EventBuffer({ sinks: [sink], bufferSize: 100, flushIntervalMs: null });
 
   buffer.push(makeEvent(1));
@@ -105,11 +105,13 @@ test('manual mode: flushIntervalMs null flushes only when flush() is called expl
 });
 
 test('manual mode: flush() awaits a size-triggered auto-flush already in flight, not just its own (possibly empty) batch', async () => {
-  const written = [];
-  let resolveWrite;
+  const written: AnyEvent[] = [];
+  // Definite assignment: set synchronously inside the Promise executor below,
+  // before any code that reads it runs.
+  let resolveWrite!: () => void;
   const sink = {
-    write: batch =>
-      new Promise(resolve => {
+    write: (batch: AnyEvent[]) =>
+      new Promise<void>(resolve => {
         resolveWrite = () => {
           written.push(...batch);
           resolve();
@@ -161,13 +163,13 @@ test('default mode still registers a beforeExit listener, removed by stop()', ()
 });
 
 test('one sink failing does not block another sink from receiving the batch', async () => {
-  const goodSinkEvents = [];
+  const goodSinkEvents: AnyEvent[] = [];
   const failingSink = {
     write: async () => {
       throw new Error('nope');
     }
   };
-  const goodSink = { write: async batch => void goodSinkEvents.push(...batch) };
+  const goodSink = { write: async (batch: AnyEvent[]) => void goodSinkEvents.push(...batch) };
   const originalConsoleError = console.error;
   console.error = () => {};
 
@@ -188,8 +190,8 @@ test('one sink failing does not block another sink from receiving the batch', as
 
 test('stop() clears the interval: a push() after stop() is never auto-flushed by the timer', async t => {
   t.mock.timers.enable({ apis: ['setInterval'] });
-  const written = [];
-  const sink = { write: async batch => void written.push(...batch) };
+  const written: AnyEvent[] = [];
+  const sink = { write: async (batch: AnyEvent[]) => void written.push(...batch) };
 
   // Control: with the timer still running, the same tick flushes the event,
   // so the assertion below cannot pass just because mocked timers never fire.

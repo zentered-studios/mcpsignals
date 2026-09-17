@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { d1Sink } from '../dist/index.mjs';
+import { d1Sink, type ToolCallEvent } from 'mcpsignals';
 
-function makeToolCallEvent(overrides = {}) {
+function makeToolCallEvent(overrides: Partial<ToolCallEvent> = {}): ToolCallEvent {
   return {
     event_type: 'tool_call',
     ts: new Date('2026-09-01T23:25:24.000Z'),
@@ -28,25 +28,35 @@ function makeToolCallEvent(overrides = {}) {
   };
 }
 
+interface BoundStatement {
+  query: string;
+  values: unknown[];
+}
+
 // A minimal fake matching the D1Database Worker Bindings API surface the
 // sink relies on: prepare().bind() returns a statement, batch() takes the
 // whole array in one call (this is the assertion that matters - the sink
 // must not call db.batch() once per row, since batch() is what buys the
 // transactional all-or-nothing behavior D1 promises).
+//
+// The real D1PreparedStatement type is recursive (`bind()` returns another
+// D1PreparedStatement), which this fake deliberately doesn't model - it only
+// needs to satisfy what d1Sink actually calls. Passed to d1Sink via a cast
+// below rather than fighting that structural mismatch.
 function makeFakeDb() {
-  const batchCalls = [];
+  const batchCalls: BoundStatement[][] = [];
   return {
     batchCalls,
-    prepare(query) {
+    prepare(query: string) {
       return {
         query,
-        values: undefined,
-        bind(...values) {
+        values: undefined as unknown[] | undefined,
+        bind(...values: unknown[]): BoundStatement {
           return { query, values };
         }
       };
     },
-    async batch(statements) {
+    async batch(statements: BoundStatement[]) {
       batchCalls.push(statements);
       return statements.map(() => ({ success: true }));
     }
@@ -55,7 +65,7 @@ function makeFakeDb() {
 
 test('writes tool_call rows in a single batch() call, ts as epoch ms, success as 0/1', async () => {
   const db = makeFakeDb();
-  const sink = d1Sink(db);
+  const sink = d1Sink(db as unknown as Parameters<typeof d1Sink>[0]);
 
   await sink.write([
     makeToolCallEvent({ success: true }),
@@ -78,7 +88,7 @@ test('writes tool_call rows in a single batch() call, ts as epoch ms, success as
 
 test('a multi-event batch still goes through one batch() call', async () => {
   const db = makeFakeDb();
-  const sink = d1Sink(db);
+  const sink = d1Sink(db as unknown as Parameters<typeof d1Sink>[0]);
 
   await sink.write([makeToolCallEvent(), makeToolCallEvent({ tool_name: 'other' })]);
 
@@ -88,7 +98,7 @@ test('a multi-event batch still goes through one batch() call', async () => {
 
 test('an empty batch never calls db.batch()', async () => {
   const db = makeFakeDb();
-  const sink = d1Sink(db);
+  const sink = d1Sink(db as unknown as Parameters<typeof d1Sink>[0]);
 
   await sink.write([]);
 
@@ -97,7 +107,9 @@ test('an empty batch never calls db.batch()', async () => {
 
 test('respects custom table names', async () => {
   const db = makeFakeDb();
-  const sink = d1Sink(db, { toolCallTable: 'custom_tool_call' });
+  const sink = d1Sink(db as unknown as Parameters<typeof d1Sink>[0], {
+    toolCallTable: 'custom_tool_call'
+  });
 
   await sink.write([makeToolCallEvent()]);
 
@@ -107,7 +119,7 @@ test('respects custom table names', async () => {
 
 test('an oversized `arguments` payload is dropped (written as null) instead of risking the whole batch', async () => {
   const db = makeFakeDb();
-  const sink = d1Sink(db);
+  const sink = d1Sink(db as unknown as Parameters<typeof d1Sink>[0]);
   const originalConsoleError = console.error;
   let warnCount = 0;
   console.error = () => void warnCount++;
@@ -138,7 +150,7 @@ test('an oversized `arguments` payload is dropped (written as null) instead of r
 
 test('arguments under the cap are passed through as a JSON string', async () => {
   const db = makeFakeDb();
-  const sink = d1Sink(db);
+  const sink = d1Sink(db as unknown as Parameters<typeof d1Sink>[0]);
 
   await sink.write([makeToolCallEvent({ arguments: { a: 1 } })]);
 
@@ -152,21 +164,21 @@ test('arguments under the cap are passed through as a JSON string', async () => 
 // as a failure rather than silently reporting a successful flush.
 test('a batch() that resolves with a failed statement still rejects write()', async () => {
   const db = {
-    prepare(query) {
+    prepare(query: string) {
       return {
         query,
-        bind(...values) {
+        bind(...values: unknown[]) {
           return { query, values };
         }
       };
     },
-    async batch(statements) {
+    async batch(statements: BoundStatement[]) {
       return statements.map((_, i) =>
         i === 0 ? { success: false, error: 'SQLITE_CONSTRAINT' } : { success: true }
       );
     }
   };
-  const sink = d1Sink(db);
+  const sink = d1Sink(db as unknown as Parameters<typeof d1Sink>[0]);
 
   await assert.rejects(
     () => sink.write([makeToolCallEvent(), makeToolCallEvent({ tool_name: 'other-tool' })]),

@@ -5,15 +5,17 @@ present on both `MCPServer` and the low-level `Server` - the same mechanism
 works for both, no separate code paths needed. See
 https://py.sdk.modelcontextprotocol.io/v2/advanced/middleware/.
 
-Known SDK limitation (verified against the installed mcp==2.0.0 source,
-mcp/server/context.py): `ServerRequestContext` - what middleware receives -
-does not publicly expose the transport's connection-level session id or a
-`connection` accessor (only the handler-facing `Context` class does, via a
-private `Connection` it doesn't share with middleware). We do not reach into
-that private attribute. As a result `session_id` on emitted events is only
-ever populated from the optional intent-capture value the calling agent
-supplies - it is `None` for calls where intent capture is off or the caller
-didn't pass one, even though the connection may well have a real session id.
+Known SDK limitation (first verified against mcp==2.0.0, re-checked against
+the mcp==2.2.0 that a fresh `uv sync` resolves; mcp/server/context.py):
+`ServerRequestContext` - what middleware receives - does not publicly expose
+the transport's connection-level session id or a `connection` accessor
+(only the handler-facing `Context` class does, via a private `Connection`
+it doesn't share with middleware; `ctx.session` is a `ServerSession`, which
+has no session id either). We do not reach into that private attribute. As
+a result `session_id` on emitted events is only ever populated from the
+optional intent-capture value the calling agent supplies - it is `None` for
+calls where intent capture is off or the caller didn't pass one, even though
+the connection may well have a real session id.
 Track https://github.com/modelcontextprotocol/python-sdk for this being
 exposed to middleware in a future release.
 """
@@ -29,6 +31,8 @@ from typing import Any
 from mcpsignals.buffer import EventBuffer
 from mcpsignals.error_kind import classify_error
 from mcpsignals.events import ToolCallEvent
+from mcpsignals.handle import InstrumentHandle
+from mcpsignals.handle import register as _register_handle
 from mcpsignals.intent_capture import enabled_for, inject_schema, strip_injected
 from mcpsignals.redaction import RedactionConfig, redact_arguments
 from mcpsignals.sinks.base import Sink
@@ -86,15 +90,21 @@ def instrument(
     intent_capture_tools: Mapping[str, bool] | None = None,
     resolve_identity: ResolveIdentity | None = None,
     buffer_size: int = 20,
-    flush_interval_s: float = 5.0,
+    flush_interval_s: float | None = 5.0,
 ) -> Any:
     """Wrap `server` (an `MCPServer` or a low-level `Server`) so every tool
     call is recorded as a `tool_call` event, per schema/events.md. Appends
     one middleware function; call this once, right after constructing your
     server. Returns the same instance, unmodified otherwise.
+
+    `handle_for(server)` then returns an `InstrumentHandle` with `flush()`
+    and `close()`. Pass `flush_interval_s=None` for manual mode: no interval
+    task and no atexit hook, so the host flushes explicitly through the
+    handle (request-scoped runtimes, tests, per-request servers).
     """
     active_sinks: list[Sink] = list(sinks) if sinks else [ConsoleSink()]
     buffer = EventBuffer(active_sinks, buffer_size=buffer_size, flush_interval_s=flush_interval_s)
+    _register_handle(server, InstrumentHandle(buffer))
 
     async def _mcpsignals_middleware(ctx, call_next):
         if ctx.method == "tools/list":

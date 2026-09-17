@@ -152,7 +152,11 @@ request-scoped, isolate-based runtime like Cloudflare Workers, neither is
 reliable - see the Node.js package README's
 ["Request-scoped runtimes"](packages/node/README.md#request-scoped-runtimes-cloudflare-workers)
 section for the manual-flush pattern (`flushIntervalMs: null` plus
-`ctx.waitUntil(flush())`).
+`ctx.waitUntil(flush())`). Python has the same manual mode
+(`flush_interval_s=None` plus `await handle_for(server).flush()`): see the
+Python package README's
+["Request-scoped runtimes and manual flushing"](packages/python/README.md#request-scoped-runtimes-and-manual-flushing)
+section.
 
 ## Intent capture
 

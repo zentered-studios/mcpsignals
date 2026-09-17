@@ -38,7 +38,7 @@ One row per tool invocation.
 | `response_bytes` | integer | no | `byteLength` of the serialized tool result. |
 | `arguments` | json | yes | The tool call's arguments. Null unless argument capture is explicitly enabled. Subject to redaction - see the redaction section of the top-level README. |
 | `intent` | string | yes | The calling agent's stated reason for the call. Only present when intent capture is enabled for this tool. Truncated to 2000 chars. |
-| `transport` | string | yes | `stdio`, `http`, or whatever the SDK reports. Null if the SDK does not expose it. |
+| `transport` | string | yes | `stdio` or `http`. Both packages default to `stdio` when there is no HTTP request context, so neither emits null today; the column stays nullable for future transports. |
 
 ### `error_kind` is a heuristic, not a structured code
 
@@ -304,10 +304,9 @@ and confirm before relying on it in production.
 
 ## OTLP mapping
 
-The `otlp` sink emits `tool_call` as a span (or a log record, for hosts that
-only want logs) rather than a warehouse row. It does not get its own DDL
-here because it isn't tabular. See the OTLP sink implementation for the
-field-by-field mapping to OpenTelemetry GenAI semantic-convention attribute
-names - that mapping is verified against the live spec at implementation
-time (this schema predates that verification and must not be treated as the
-source of truth for OTel attribute names).
+The `otlp` sink emits `tool_call` as a span rather than a warehouse row. It
+does not get its own DDL here because it isn't tabular. See the OTLP sink
+implementation for the field-by-field mapping to OpenTelemetry GenAI
+semantic-convention attribute names - that mapping is verified against the
+live spec at implementation time (this schema predates that verification and
+must not be treated as the source of truth for OTel attribute names).

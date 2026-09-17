@@ -64,6 +64,8 @@ import { bigquerySink } from 'mcpsignals';
 bigquerySink(); // dataset: 'mcpsignals', tables: tool_call / session_summary, ADC credentials
 
 bigquerySink({ projectId: 'my-gcp-project', dataset: 'my_custom_dataset' });
+
+bigquerySink({ client: new BigQuery() }); // reuse an existing @google-cloud/bigquery client instead of creating one from ADC
 ```
 
 Python - `dataset` has no default, pass it explicitly:
@@ -74,7 +76,13 @@ from mcpsignals.sinks import BigQuerySink
 BigQuerySink(dataset="mcpsignals")  # ADC credentials, project resolved automatically
 
 BigQuerySink(dataset="my_custom_dataset", project="my-gcp-project")
+
+BigQuerySink(dataset="mcpsignals", client=bigquery.Client())  # reuse an existing client
 ```
+
+Both packages write `arguments` to the `JSON` column as a JSON string
+(`JSON.stringify` / `json.dumps`), which is the shape `tabledata.insertAll`
+expects for `JSON`-typed fields. Null stays null.
 
 ## Notes
 

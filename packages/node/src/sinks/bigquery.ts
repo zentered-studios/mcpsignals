@@ -2,6 +2,8 @@ import type { Sink } from './types.js';
 import type { AnyEvent } from '../events.js';
 
 export interface BigQuerySinkOptions {
+  /** An existing `@google-cloud/bigquery` client to reuse. If omitted, one is created from Application Default Credentials. */
+  client?: unknown;
   /** BigQuery project id. Defaults to the client library's own ADC-based resolution. */
   projectId?: string;
   dataset?: string;
@@ -33,6 +35,9 @@ export function bigquerySink(options: BigQuerySinkOptions = {}): Sink {
   async function getClient(): Promise<BigQueryClient> {
     if (!clientPromise) {
       clientPromise = (async () => {
+        if (options.client) {
+          return options.client as BigQueryClient;
+        }
         const mod = await import('@google-cloud/bigquery');
         const BigQuery = mod.BigQuery;
         return new BigQuery(

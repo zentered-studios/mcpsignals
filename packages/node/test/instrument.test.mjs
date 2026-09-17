@@ -256,6 +256,72 @@ test('no inputSchema + intentCapture: the injected schema path still works and r
   assert.equal(events[0].session_id, 's-1');
 });
 
+/**
+ * `close()` tests build their own server so each one can measure the
+ * `beforeExit` listener count around exactly one `instrument()` call.
+ */
+function createClosableServer(instrumentOptions = {}) {
+  const events = [];
+  const capturingSink = { write: async batch => void events.push(...batch) };
+  const server = new McpServer({ name: 'test-server', version: '1.0.0' });
+  const handle = instrument(server, {
+    serverName: 'test-server',
+    sinks: [capturingSink],
+    bufferSize: 100, // a single tool call never triggers an auto-flush
+    ...instrumentOptions
+  });
+  server.registerTool(
+    'add',
+    { inputSchema: z.object({ a: z.number(), b: z.number() }) },
+    async ({ a, b }) => ({ content: [{ type: 'text', text: String(a + b) }] })
+  );
+  return { server, events, handle };
+}
+
+test('close(): default mode removes exactly the one beforeExit listener instrument() added', async () => {
+  const before = process.listenerCount('beforeExit');
+  const { handle } = createClosableServer({ flushIntervalMs: 60_000 });
+  assert.equal(process.listenerCount('beforeExit'), before + 1);
+
+  await handle.close();
+  assert.equal(process.listenerCount('beforeExit'), before);
+});
+
+test('close(): flushes the pending batch before stopping', async () => {
+  const { server, events, handle } = createClosableServer({ flushIntervalMs: 60_000 });
+  const client = await connectClient(server);
+
+  await client.callTool({ name: 'add', arguments: { a: 2, b: 3 } });
+  assert.equal(events.length, 0, 'below bufferSize and the interval has not fired');
+
+  await handle.close();
+  assert.equal(events.length, 1);
+  assert.equal(events[0].tool_name, 'add');
+});
+
+test('close(): calling it twice does not throw and does not remove a second listener', async () => {
+  const before = process.listenerCount('beforeExit');
+  const { handle } = createClosableServer({ flushIntervalMs: 60_000 });
+
+  await handle.close();
+  await handle.close();
+  assert.equal(process.listenerCount('beforeExit'), before);
+});
+
+test('close(): manual mode flushes and leaves the beforeExit listener count unchanged', async () => {
+  const before = process.listenerCount('beforeExit');
+  const { server, events, handle } = createClosableServer({ flushIntervalMs: null });
+  assert.equal(process.listenerCount('beforeExit'), before);
+  const client = await connectClient(server);
+
+  await client.callTool({ name: 'add', arguments: { a: 1, b: 1 } });
+  assert.equal(events.length, 0);
+
+  await handle.close();
+  assert.equal(events.length, 1);
+  assert.equal(process.listenerCount('beforeExit'), before);
+});
+
 // Telemetry failure isolation (#25): nothing the library does around a tool
 // call may change what the client receives. Each test below breaks one
 // library-side step and asserts the handler's own result still comes back,

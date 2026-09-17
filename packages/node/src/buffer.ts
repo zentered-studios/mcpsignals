@@ -99,6 +99,11 @@ export class EventBuffer {
     );
   }
 
+  /**
+   * Clears the interval timer and removes the `beforeExit` listener. Safe to
+   * call more than once and in manual mode: `clearInterval(undefined)` and
+   * `process.off()` for a listener that is not registered are both no-ops.
+   */
   stop(): void {
     clearInterval(this.timer);
     process.off('beforeExit', this.onBeforeExit);

@@ -41,6 +41,10 @@ instrument(server, {
 server.registerTool('search', { /* ... */ }, async args => { /* ... */ });
 ```
 
+On a stdio transport, pass `consoleSink({ stream: process.stderr })`. stdout
+is the MCP wire there, and `StdioServerTransport` writes to the same
+`process.stdout` the default sink uses. See [Sinks](#sinks).
+
 **Python**
 
 ```python
@@ -73,7 +77,10 @@ OpenTelemetry collector instead.
 | Instruments | `McpServer` | `MCPServer` and the low-level `Server` |
 
 Both packages write the same event contract, so a Node.js server and a
-Python server can share tables.
+Python server can share tables. One field differs: the `__type` marker
+inside `arguments` uses JSON type names in Node.js and Python type names in
+Python (see [Argument capture](#argument-capture-is-opt-in-and-redacted-by-default)),
+so a query on `__type` over a shared table must match both vocabularies.
 
 ## Why this exists instead of a hosted analytics product
 
@@ -98,8 +105,12 @@ mean "record everything":
 - Capture (`captureArguments` / `capture_arguments`) is **off by default**:
   the `arguments` field is always null and no argument reaches a sink.
 - Turned on with no further configuration, you get **argument keys and value
-  types only**. `{"query": "jane@example.com"}` is recorded as
-  `{"query": "<string>"}`.
+  types only**. Each value becomes a `{"__type": ...}` marker. The type
+  names are per language. For `{"query": "jane@example.com", "limit": 10}`:
+  - Node.js records `{"query": {"__type": "string"}, "limit": {"__type": "number"}}`
+    (JSON type names: `string`, `number`, `boolean`, `object`, `array`, `null`).
+  - Python records `{"query": {"__type": "str"}, "limit": {"__type": "int"}}`
+    (Python type names: `str`, `int`, `float`, `bool`, `dict`, `array`, `null`).
 - To record real values, explicitly allowlist which keys are safe
   (`redaction.allow`). `redaction.deny` forces a key back to type-only even
   if `allow` also lists it.
@@ -120,7 +131,27 @@ mean "record everything":
 
 Node.js imports these from `mcpsignals`, Python from `mcpsignals.sinks`;
 install only the dependency for the sink you use. `console` writes JSON
-lines to stdout and is what Python uses when you pass no `sinks` at all.
+lines to stdout by default and is what Python uses when you pass no `sinks`
+at all. On a stdio transport it must write to stderr instead. The
+[MCP spec](https://modelcontextprotocol.io/specification/2025-06-18/basic/transports#stdio)
+says: "The server MUST NOT write anything to its `stdout` that is not a valid
+MCP message" and "The server MAY write UTF-8 strings to its standard error
+(`stderr`) for logging purposes." Pass the stream explicitly:
+
+```ts
+sinks: [consoleSink({ stream: process.stderr })]
+```
+
+```python
+import sys
+from mcpsignals.sinks import ConsoleSink
+
+instrument(server, server_name="my-server", sinks=[ConsoleSink(stream=sys.stderr)])
+```
+
+The default stays stdout so HTTP servers and log collectors that read
+stdout keep working unchanged.
+
 Postgres, BigQuery, and D1 write the tables in
 [`schema/events.md`](schema/events.md). OTLP emits one span per tool call
 using whatever `TracerProvider` your app already configured (standard OTel
@@ -151,7 +182,11 @@ request-scoped, isolate-based runtime like Cloudflare Workers, neither is
 reliable - see the Node.js package README's
 ["Request-scoped runtimes"](packages/node/README.md#request-scoped-runtimes-cloudflare-workers)
 section for the manual-flush pattern (`flushIntervalMs: null` plus
-`ctx.waitUntil(flush())`).
+`ctx.waitUntil(flush())`). Python has the same manual mode
+(`flush_interval_s=None` plus `await handle_for(server).flush()`): see the
+Python package README's
+["Request-scoped runtimes and manual flushing"](packages/python/README.md#request-scoped-runtimes-and-manual-flushing)
+section.
 
 ## Intent capture
 
@@ -161,9 +196,38 @@ schemas your server advertises, then strips all three back out before your
 handler sees them - it receives exactly what it would have without this
 library, and both packages have tests proving it.
 
+Node takes `intentCapture`. `true` enables it for every tool. The object
+form enables only the tools named with `true`; every unlisted tool stays
+off.
+
+```ts
+instrument(server, { intentCapture: true });
+instrument(server, { intentCapture: { tools: { search: true } } });
+```
+
+Python takes `intent_capture` as the global default and
+`intent_capture_tools` as per-tool overrides layered on top of it.
+
+```python
+instrument(server, intent_capture=True, intent_capture_tools={"search": False})
+```
+
+The shapes differ: Python can express global-on with per-tool off, Node
+cannot.
+
 It costs tokens on every tool schema, and models sometimes ignore the field
 or invent a plausible-sounding reason. Turn it on only if "why did the agent
 call this" is a question you need answered.
+
+A tool that declares its own `session_id`, `agent_id`, or `intent`
+parameter loses it when intent capture is on for that tool. Both packages
+strip those three keys from the arguments before the handler runs. In Node
+the handler never sees the value, and the library's field definition
+replaces the tool's own in the advertised schema. In Python a required
+parameter with one of those names fails argument validation, and an
+optional one silently falls back to its default while the event carries the
+caller's value. Rename the tool parameter, or do not enable intent capture
+for that tool.
 
 All three values are caller-controlled, so the library bounds them before
 they reach any sink: `intent` is truncated to 2000 chars (the same cap as

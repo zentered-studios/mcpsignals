@@ -52,9 +52,12 @@ class PostgresSink:
         self._pool = pool
 
     async def _get_pool(self):
-        import asyncpg  # local import: don't require asyncpg unless this sink is used
-
         if self._pool is None:
+            # Local import, and only on the path that actually needs it: a
+            # caller who injected their own pool never requires the `postgres`
+            # extra to be installed at all.
+            import asyncpg
+
             self._pool = await asyncpg.create_pool(dsn=self._dsn)
         return self._pool
 
@@ -63,6 +66,9 @@ class PostgresSink:
 
         tool_calls = [e for e in events if isinstance(e, ToolCallEvent)]
         summaries = [e for e in events if isinstance(e, SessionSummaryEvent)]
+        if not tool_calls and not summaries:
+            # Nothing to write, so never open a connection (or a pool) for it.
+            return
 
         pool = await self._get_pool()
         async with pool.acquire() as conn:

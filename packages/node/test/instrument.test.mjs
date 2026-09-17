@@ -1,7 +1,7 @@
 import { test, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { z } from 'zod';
-import { McpServer, InMemoryTransport } from '@modelcontextprotocol/server';
+import { McpServer, InMemoryTransport, createMcpHandler } from '@modelcontextprotocol/server';
 import { Client } from '@modelcontextprotocol/client';
 import { instrument } from '../dist/index.mjs';
 import { createInstrumentedServer, connectClient } from './helpers.mjs';
@@ -518,4 +518,90 @@ test('client_name and client_version within the cap reach the sink unchanged', a
   await new Promise(resolve => setTimeout(resolve, 10));
   assert.equal(events[0].client_name, 'test-client');
   assert.equal(events[0].client_version, '9.9.9');
+});
+
+// Identity: `resolveIdentity` may return the identity directly or as a
+// promise. The async path is asserted in the duration test above; this pins
+// the sync path and that the resolver sees the call's session id slot.
+
+test('resolveIdentity: a synchronous resolver lands user_id and org_id on the event', async () => {
+  const seen = [];
+  const { server, events } = createInstrumentedServer({
+    resolveIdentity: ctx => {
+      seen.push(ctx);
+      return { userId: 'u-sync', orgId: 'o-sync' };
+    }
+  });
+  server.registerTool('whoami-sync', { inputSchema: z.object({}) }, async () => ({
+    content: [{ type: 'text', text: 'ok' }]
+  }));
+  const client = await connectClient(server);
+
+  const result = await client.callTool({ name: 'whoami-sync', arguments: {} });
+  assert.equal(result.content[0].text, 'ok');
+
+  await new Promise(resolve => setTimeout(resolve, 10));
+  assert.equal(events.length, 1);
+  assert.equal(events[0].user_id, 'u-sync');
+  assert.equal(events[0].org_id, 'o-sync');
+  assert.equal(seen.length, 1);
+  assert.ok('sessionId' in seen[0], 'the resolver receives the { sessionId } context');
+});
+
+// Transport: the SDK sets `ctx.http` on the tool callback context only when
+// the call arrived over its HTTP handler, and the wrapper maps that to
+// `transport: 'http'`. Driven through the real web-standard handler
+// (`createMcpHandler(...).fetch(Request)`) with the same JSON-RPC body the
+// example READMEs send with curl, so the branch is exercised end to end.
+
+test('transport: a tools/call over the SDK HTTP handler is recorded as transport: "http"', async () => {
+  const events = [];
+  const capturingSink = { write: async batch => void events.push(...batch) };
+  let flush;
+  const handler = createMcpHandler(() => {
+    // Per-request factory, as in examples/node-express/server.ts: a fresh
+    // McpServer, instrumented in manual flush mode, per HTTP request.
+    const server = new McpServer({ name: 'test-server', version: '1.0.0' });
+    ({ flush } = instrument(server, {
+      serverName: 'test-server',
+      sinks: [capturingSink],
+      bufferSize: 1,
+      flushIntervalMs: null
+    }));
+    server.registerTool(
+      'add-note',
+      { inputSchema: z.object({ text: z.string() }) },
+      async ({ text }) => ({ content: [{ type: 'text', text: `Saved: ${text}` }] })
+    );
+    return server;
+  });
+
+  try {
+    const response = await handler.fetch(
+      new Request('http://127.0.0.1/mcp', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          accept: 'application/json, text/event-stream'
+        },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'tools/call',
+          params: { name: 'add-note', arguments: { text: 'hello from curl' } }
+        })
+      })
+    );
+    assert.equal(response.status, 200);
+    const body = await response.text(); // JSON or an SSE frame, depending on the SDK's response mode
+    assert.ok(body.includes('Saved: hello from curl'), `unexpected response body: ${body}`);
+
+    await flush();
+    assert.equal(events.length, 1);
+    assert.equal(events[0].tool_name, 'add-note');
+    assert.equal(events[0].success, true);
+    assert.equal(events[0].transport, 'http');
+  } finally {
+    await handler.close();
+  }
 });

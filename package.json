@@ -22,5 +22,8 @@
     "husky": "^9.1.7",
     "oxlint": "^1.79.0",
     "semantic-release": "^25.0.9"
+  },
+  "overrides": {
+    "esbuild": "^0.28.1"
   }
 }

@@ -23,11 +23,11 @@ One row per tool invocation.
 | `ts` | timestamp | no | UTC. When the call started, not when it finished. |
 | `server_name` | string | no | The MCP server's advertised name. |
 | `server_version` | string | yes | The MCP server's advertised version. |
-| `tool_name` | string | no | |
+| `tool_name` | string | no | Truncated to 128 chars when it comes from the `tools/call` request rather than the registration. |
 | `session_id` | string | yes | Groups calls into one task. Only present where the transport exposes a session concept. Truncated to 128 chars when it comes from intent capture. |
 | `agent_id` | string | yes | Distinguishes parallel agents sharing a session. Only present if the host or intent-capture supplies one. Truncated to 128 chars when it comes from intent capture. |
-| `client_name` | string | yes | From the MCP `initialize` handshake. |
-| `client_version` | string | yes | From the MCP `initialize` handshake. |
+| `client_name` | string | yes | From the MCP `initialize` handshake. Truncated to 128 chars. |
+| `client_version` | string | yes | From the MCP `initialize` handshake. Truncated to 128 chars. |
 | `user_id` | string | yes | The host application supplies this. The library never invents or infers it. |
 | `org_id` | string | yes | Same as `user_id`: host-supplied only. |
 | `duration_ms` | integer | no | Wall time from call start to response, including any handler-internal await. |

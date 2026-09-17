@@ -11,6 +11,7 @@ import {
   type IntentCaptureOption
 } from './intent-capture.js';
 import { EventBuffer } from './buffer.js';
+import { boundedString, MAX_IDENTIFIER_LENGTH } from './bounded.js';
 
 export interface InstrumentOptions {
   /** Required: this server's logical name. Not derivable from the McpServer instance (its `serverInfo` is private), so it's an explicit option. */
@@ -212,7 +213,13 @@ export function instrument(server: McpServer, options: InstrumentOptions): Instr
         // "remains functional" and is backfilled per request on 2026-07-28-era connections too.
         // Deliberately kept rather than reaching into the envelope's internal shape, which isn't
         // part of this SDK's stable public surface yet.
+        //
+        // The client declares its own name/version in the `initialize` handshake, so
+        // both are caller-controlled and take the same identifier cap as the intent
+        // fields (see bounded.ts). `tool_name` needs no cap: it is the registered name.
         const clientInfo = server.server.getClientVersion();
+        const clientName = boundedString(clientInfo?.name, MAX_IDENTIFIER_LENGTH);
+        const clientVersion = boundedString(clientInfo?.version, MAX_IDENTIFIER_LENGTH);
         const recordedArguments = guarded(
           'redaction',
           () => applyRedaction(cleanArgs, options.redaction, options.captureArguments),
@@ -226,8 +233,8 @@ export function instrument(server: McpServer, options: InstrumentOptions): Instr
           tool_name: name,
           session_id: sessionId,
           agent_id: agentId,
-          client_name: clientInfo?.name ?? null,
-          client_version: clientInfo?.version ?? null,
+          client_name: clientName,
+          client_version: clientVersion,
           user_id: identity.userId ?? null,
           org_id: identity.orgId ?? null,
           duration_ms: durationMs,

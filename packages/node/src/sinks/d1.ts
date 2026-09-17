@@ -22,11 +22,12 @@ interface D1Database {
 
 // developers.cloudflare.com/d1/platform/limits/: "Maximum string, BLOB or
 // table row size: 2,000,000 bytes," and that limit applies per statement
-// inside a batch(), same as everywhere else. `arguments` is the only field
-// in schema/events.md without its own cap (error_message and intent are
-// truncated to 2000 chars upstream), so it's the only column that can push
-// a row anywhere near that ceiling. Capped well under it to leave headroom
-// for the row's other columns.
+// inside a batch(), same as everywhere else. `arguments` is the only
+// caller-controlled field in schema/events.md without its own cap (upstream,
+// error_message and intent are truncated to 2000 chars and the identifiers
+// session_id/agent_id/client_name/client_version to 128, see bounded.ts), so
+// it's the only column that can push a row anywhere near that ceiling.
+// Capped well under it to leave headroom for the row's other columns.
 const MAX_ARGUMENTS_BYTES = 1_000_000;
 
 const encoder = new TextEncoder();

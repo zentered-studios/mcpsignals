@@ -499,3 +499,53 @@ async def test_ts_is_when_the_call_started_not_when_it_finished():
         f"ts {event.ts.isoformat()} is not at least 40 ms before the handler "
         f"finished at {handler_end[0].isoformat()}"
     )
+
+
+# Bounds (#19): `client_name`/`client_version` come from the client's
+# `initialize` handshake and `tool_name` straight from the `tools/call`
+# request, so all three are caller-controlled like the intent fields and take
+# the same 128-char identifier cap. Truncated, never dropped.
+
+
+@pytest.mark.asyncio
+async def test_client_name_and_version_are_truncated_to_the_identifier_cap():
+    server, sink = build_server()
+
+    @server.tool()
+    def ping() -> str:
+        return "ok"
+
+    async with Client(
+        server, client_info=Implementation(name="c" * 5000, version="v" * 5000)
+    ) as client:
+        await client.call_tool("ping", {})
+        await asyncio.sleep(0.05)
+
+    assert len(sink.events) == 1
+    event = sink.events[0]
+    assert event.client_name == "c" * MAX_IDENTIFIER_LENGTH
+    assert event.client_version == "v" * MAX_IDENTIFIER_LENGTH
+
+
+@pytest.mark.asyncio
+async def test_tool_name_from_the_request_is_truncated_to_the_identifier_cap():
+    server, sink = build_server()
+
+    @server.tool()
+    def ping() -> str:
+        return "ok"
+
+    async with Client(server) as client:
+        # No tool is registered under this name, so the call fails, but the
+        # failed event is still recorded with the name the client sent.
+        try:
+            result = await client.call_tool("t" * 5000, {})
+        except Exception:  # noqa: BLE001 - the SDK's error shape is not what is under test
+            result = None
+        await asyncio.sleep(0.05)
+
+    assert result is None or result.is_error
+    assert len(sink.events) == 1
+    event = sink.events[0]
+    assert event.success is False
+    assert event.tool_name == "t" * MAX_IDENTIFIER_LENGTH

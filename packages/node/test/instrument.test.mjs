@@ -1,4 +1,4 @@
-import { test } from 'node:test';
+import { test, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { z } from 'zod';
 import { McpServer } from '@modelcontextprotocol/server';
@@ -320,4 +320,111 @@ test('close(): manual mode flushes and leaves the beforeExit listener count unch
   await handle.close();
   assert.equal(events.length, 1);
   assert.equal(process.listenerCount('beforeExit'), before);
+});
+
+// Telemetry failure isolation (#25): nothing the library does around a tool
+// call may change what the client receives. Each test below breaks one
+// library-side step and asserts the handler's own result still comes back,
+// the event still lands, and the failure is logged once per instrument() call.
+
+test('telemetry failure: a throwing redactor never reaches the client; the event is recorded with arguments: null and logged once', async () => {
+  const errorLog = mock.method(console, 'error', () => {});
+  try {
+    const { server, events } = createInstrumentedServer({
+      captureArguments: true,
+      redaction: {
+        redactor: () => {
+          throw new Error('redactor exploded');
+        }
+      }
+    });
+    server.registerTool(
+      'lookup-redact',
+      { inputSchema: z.object({ email: z.string() }) },
+      async () => ({ content: [{ type: 'text', text: 'ok' }] })
+    );
+    const client = await connectClient(server);
+
+    const first = await client.callTool({
+      name: 'lookup-redact',
+      arguments: { email: 'jane@example.com' }
+    });
+    assert.equal(first.isError, undefined);
+    assert.equal(first.content[0].text, 'ok');
+    const second = await client.callTool({
+      name: 'lookup-redact',
+      arguments: { email: 'jane@example.com' }
+    });
+    assert.equal(second.isError, undefined);
+    assert.equal(second.content[0].text, 'ok');
+
+    await new Promise(resolve => setTimeout(resolve, 10));
+    assert.equal(events.length, 2);
+    for (const event of events) {
+      assert.equal(event.success, true);
+      // A failed redactor must never fall back to the raw arguments.
+      assert.equal(event.arguments, null);
+    }
+    assert.ok(!JSON.stringify(events).includes('jane@example.com'));
+    assert.equal(errorLog.mock.callCount(), 1, 'logged once per instrument() call, not per event');
+  } finally {
+    errorLog.mock.restore();
+  }
+});
+
+test('telemetry failure: a throwing resolveIdentity never reaches the client; the event is recorded with null identity', async () => {
+  const errorLog = mock.method(console, 'error', () => {});
+  try {
+    const { server, events } = createInstrumentedServer({
+      resolveIdentity: () => {
+        throw new Error('identity service down');
+      }
+    });
+    server.registerTool('whoami-id', { inputSchema: z.object({}) }, async () => ({
+      content: [{ type: 'text', text: 'ok' }]
+    }));
+    const client = await connectClient(server);
+
+    const first = await client.callTool({ name: 'whoami-id', arguments: {} });
+    assert.equal(first.isError, undefined);
+    assert.equal(first.content[0].text, 'ok');
+    const second = await client.callTool({ name: 'whoami-id', arguments: {} });
+    assert.equal(second.isError, undefined);
+
+    await new Promise(resolve => setTimeout(resolve, 10));
+    assert.equal(events.length, 2);
+    for (const event of events) {
+      assert.equal(event.success, true);
+      assert.equal(event.user_id, null);
+      assert.equal(event.org_id, null);
+    }
+    assert.equal(errorLog.mock.callCount(), 1);
+  } finally {
+    errorLog.mock.restore();
+  }
+});
+
+test('telemetry failure: a BigInt argument cannot be JSON-serialized, but the handler still runs and the client gets its result', async () => {
+  const errorLog = mock.method(console, 'error', () => {});
+  try {
+    const { server, events } = createInstrumentedServer();
+    // The in-memory transport passes the request object through by reference,
+    // so a real BigInt reaches the wrapper and `JSON.stringify` throws on it.
+    server.registerTool('big', { inputSchema: z.object({ n: z.bigint() }) }, async ({ n }) => ({
+      content: [{ type: 'text', text: String(n * 2n) }]
+    }));
+    const client = await connectClient(server);
+
+    const result = await client.callTool({ name: 'big', arguments: { n: 21n } });
+    assert.equal(result.isError, undefined);
+    assert.equal(result.content[0].text, '42');
+
+    await new Promise(resolve => setTimeout(resolve, 10));
+    assert.equal(events.length, 1);
+    assert.equal(events[0].success, true);
+    assert.equal(events[0].request_bytes, 0, 'unmeasurable request size is recorded as 0');
+    assert.equal(errorLog.mock.callCount(), 1);
+  } finally {
+    errorLog.mock.restore();
+  }
 });

@@ -18,10 +18,22 @@ calls where intent capture is off or the caller didn't pass one, even though
 the connection may well have a real session id.
 Track https://github.com/modelcontextprotocol/python-sdk for this being
 exposed to middleware in a future release.
+
+Guarantee: nothing the library does around a tool call can change what the
+client receives. The real handler always runs, its result is returned
+unchanged, and its exception propagates unchanged. Every library-side step
+(request byte counting, `resolve_identity`, redaction, event construction,
+`buffer.add`) is guarded: a failure is logged once per `instrument()` call on
+the `mcpsignals` logger, then suppressed, and the step falls back to a
+neutral value (`request_bytes` 0, identity `(None, None)`, `arguments`
+None). A failing redactor therefore records `arguments=None`, never the raw
+arguments. A sink failure is handled separately by EventBuffer, also logged
+once per sink.
 """
 
 import inspect
 import json
+import logging
 import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import replace
@@ -37,6 +49,8 @@ from mcpsignals.intent_capture import enabled_for, inject_schema, strip_injected
 from mcpsignals.redaction import RedactionConfig, redact_arguments
 from mcpsignals.sinks.base import Sink
 from mcpsignals.sinks.console import ConsoleSink
+
+logger = logging.getLogger("mcpsignals")
 
 ResolveIdentity = Callable[
     [Any], tuple[str | None, str | None] | Awaitable[tuple[str | None, str | None]]
@@ -106,6 +120,23 @@ def instrument(
     buffer = EventBuffer(active_sinks, buffer_size=buffer_size, flush_interval_s=flush_interval_s)
     _register_handle(server, InstrumentHandle(buffer))
 
+    # Same "log once, then suppress" pattern EventBuffer uses per sink, scoped
+    # to this instrument() call: one line is enough to surface a broken
+    # resolver or redactor, and a line per tool call would drown the host's logs.
+    warned = False
+
+    def _warn_once(step: str, exc: BaseException) -> None:
+        nonlocal warned
+        if warned:
+            return
+        warned = True
+        logger.error(
+            "mcpsignals: %s failed; the tool result is unaffected and further telemetry "
+            "errors from this instrument() call are suppressed: %r",
+            step,
+            exc,
+        )
+
     async def _mcpsignals_middleware(ctx, call_next):
         if ctx.method == "tools/list":
             result = await call_next(ctx)
@@ -134,7 +165,11 @@ def instrument(
         params = ctx.params or {}
         tool_name = params.get("name", "")
         raw_arguments = params.get("arguments") or {}
-        request_bytes = len(json.dumps(raw_arguments, default=str).encode())
+        try:
+            request_bytes = len(json.dumps(raw_arguments, default=str).encode())
+        except Exception as exc:  # noqa: BLE001 - an unmeasurable request never blocks the handler
+            _warn_once("request byte count", exc)
+            request_bytes = 0
 
         tool_intent_enabled = enabled_for(
             tool_name, global_enabled=intent_capture, overrides=intent_capture_tools
@@ -149,14 +184,20 @@ def instrument(
             extracted = {"session_id": None, "agent_id": None, "intent": None}
             forward_ctx = ctx
 
+        # A host resolver that raises records a null identity; the handler
+        # still runs. (#27 covers where this runs relative to the timer.)
         user_id: str | None = None
         org_id: str | None = None
         if resolve_identity is not None:
-            identity = resolve_identity(ctx)
-            if inspect.isawaitable(identity):
-                identity = await identity
-            if identity:
-                user_id, org_id = identity
+            try:
+                identity = resolve_identity(ctx)
+                if inspect.isawaitable(identity):
+                    identity = await identity
+                if identity:
+                    user_id, org_id = identity
+            except Exception as exc:  # noqa: BLE001 - a broken resolver never blocks the handler
+                _warn_once("resolve_identity", exc)
+                user_id, org_id = None, None
 
         client_name: str | None = None
         client_version: str | None = None
@@ -169,15 +210,8 @@ def instrument(
         transport = "http" if getattr(ctx, "request", None) is not None else "stdio"
 
         start = time.perf_counter()
-        error: BaseException | None = None
-        result = None
-        try:
-            result = await call_next(forward_ctx)
-            return result
-        except BaseException as exc:
-            error = exc
-            raise
-        finally:
+
+        async def _record(error: BaseException | None, result: Any) -> None:
             duration_ms = int((time.perf_counter() - start) * 1000)
             if error is not None:
                 success = False
@@ -190,7 +224,15 @@ def instrument(
                     error_message = error_message[:2000]
                 response_bytes = len(_serialize_for_bytes(result))
 
-            arguments = redact_arguments(clean_arguments, redaction) if capture_arguments else None
+            # Guarded on its own so a broken redactor still leaves an event
+            # behind, recorded with `arguments=None` rather than the raw args.
+            arguments = None
+            if capture_arguments:
+                try:
+                    arguments = redact_arguments(clean_arguments, redaction)
+                except Exception as exc:  # noqa: BLE001 - never fall back to the raw arguments
+                    _warn_once("redaction", exc)
+                    arguments = None
 
             event = ToolCallEvent(
                 # Not datetime.UTC: that alias is 3.11+, and requires-python
@@ -217,6 +259,24 @@ def instrument(
                 transport=transport,
             )
             await buffer.add(event)
+
+        error: BaseException | None = None
+        result = None
+        try:
+            result = await call_next(forward_ctx)
+            return result
+        except BaseException as exc:
+            error = exc
+            raise
+        finally:
+            # An exception raised inside `finally` replaces the handler's
+            # return value or exception, so the whole recording step is
+            # guarded here. `Exception` only: a cancellation raised while
+            # awaiting the buffer must still propagate.
+            try:
+                await _record(error, result)
+            except Exception as exc:  # noqa: BLE001 - telemetry must never change the tool result
+                _warn_once("event recording", exc)
 
     server.middleware.append(_mcpsignals_middleware)
     return server

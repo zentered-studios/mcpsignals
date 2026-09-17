@@ -116,7 +116,8 @@ mean "record everything":
   if `allow` also lists it.
 - A custom `redaction.redactor` function replaces that logic entirely and is
   solely responsible for what gets recorded; `allow`/`deny` do not apply to
-  it.
+  it. If it throws, the event is recorded with `arguments` null, never with
+  the raw arguments, and the tool result is unaffected.
 
 ## Sinks
 
@@ -170,6 +171,11 @@ Events are buffered in memory and flushed on a size threshold or an
 interval, whichever comes first, plus a best-effort flush on shutdown. A
 sink that throws is caught, logged once, and otherwise ignored: a failing
 warehouse write never breaks a tool call and never delays a tool response.
+The same holds for every other library-side step around a call (byte
+counting, `resolveIdentity` / `resolve_identity`, redaction, event
+construction): a failure there is logged once, the step falls back to a
+neutral value, and the handler's own result or exception reaches the client
+unchanged.
 
 That interval/shutdown-flush pattern assumes a long-lived process. On a
 request-scoped, isolate-based runtime like Cloudflare Workers, neither is

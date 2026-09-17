@@ -1,0 +1,29 @@
+{
+  "cli_version": "0.10.6",
+  "checkpoint_id": "01M2RVHEYX0ZJE10X5T6PFQ4PH",
+  "strategy": "manual-commit",
+  "branch": "fix/main-typescript-pin",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "examples/node-express/package.json",
+    "examples/node-fastify/package.json",
+    "package.json",
+    "packages/node/package.json"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 60,
+    "cache_creation_tokens": 31745,
+    "cache_read_tokens": 5882337,
+    "output_tokens": 13904,
+    "api_call_count": 30
+  }
+}

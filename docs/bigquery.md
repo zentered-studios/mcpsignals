@@ -18,14 +18,13 @@ bq query --use_legacy_sql=false < schema-bigquery.sql
 (where `schema-bigquery.sql` is the BigQuery section of `schema/events.md`
 saved to a file - `bq` doesn't read Markdown directly).
 
-This creates `mcpsignals.tool_call` and `mcpsignals.session_summary`,
-partitioned by day on `ts` and clustered by `server_name` (and `tool_name`
-for `tool_call`), which keeps queries scoped to a date range cheap as the
-tables grow.
+This creates `mcpsignals.tool_call`, partitioned by day on `ts` and
+clustered by `server_name` and `tool_name`, which keeps queries scoped to a
+date range cheap as the table grows.
 
-If you want a different dataset or table names, create them under whatever
-names you like and pass them to the sink explicitly (see below) - nothing
-in `mcpsignals` assumes the `mcpsignals` dataset name except the sink's own
+If you want a different dataset or table name, create it under whatever name
+you like and pass it to the sink explicitly (see below) - nothing in
+`mcpsignals` assumes the `mcpsignals` dataset name except the sink's own
 default.
 
 ## 2. Set up credentials
@@ -61,7 +60,7 @@ Node.js - the dataset defaults to `mcpsignals`, matching the DDL above:
 ```ts
 import { bigquerySink } from 'mcpsignals';
 
-bigquerySink(); // dataset: 'mcpsignals', tables: tool_call / session_summary, ADC credentials
+bigquerySink(); // dataset: 'mcpsignals', table: tool_call, ADC credentials
 
 bigquerySink({ projectId: 'my-gcp-project', dataset: 'my_custom_dataset' });
 

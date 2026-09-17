@@ -12,12 +12,10 @@ import atexit
 import logging
 from collections.abc import Sequence
 
-from mcpsignals.events import SessionSummaryEvent, ToolCallEvent
+from mcpsignals.events import Event
 from mcpsignals.sinks.base import Sink
 
 logger = logging.getLogger("mcpsignals")
-
-Event = ToolCallEvent | SessionSummaryEvent
 
 
 class EventBuffer:

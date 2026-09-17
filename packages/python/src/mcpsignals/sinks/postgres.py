@@ -4,7 +4,7 @@ schema/events.md. Connection info comes from asyncpg's own env var defaults
 never an invented config file.
 """
 
-from mcpsignals.events import SessionSummaryEvent, ToolCallEvent
+from mcpsignals.events import ToolCallEvent
 
 _TOOL_CALL_COLUMNS = [
     "ts",
@@ -28,19 +28,6 @@ _TOOL_CALL_COLUMNS = [
     "transport",
 ]
 
-_SESSION_SUMMARY_COLUMNS = [
-    "ts",
-    "session_id",
-    "server_name",
-    "server_version",
-    "user_id",
-    "org_id",
-    "call_count",
-    "distinct_tools_used",
-    "wall_duration_ms",
-    "error_count",
-]
-
 
 class PostgresSink:
     def __init__(self, dsn: str | None = None, pool=None):
@@ -61,12 +48,11 @@ class PostgresSink:
             self._pool = await asyncpg.create_pool(dsn=self._dsn)
         return self._pool
 
-    async def write(self, events: list[ToolCallEvent | SessionSummaryEvent]) -> None:
+    async def write(self, events: list[ToolCallEvent]) -> None:
         import json as _json
 
         tool_calls = [e for e in events if isinstance(e, ToolCallEvent)]
-        summaries = [e for e in events if isinstance(e, SessionSummaryEvent)]
-        if not tool_calls and not summaries:
+        if not tool_calls:
             # Nothing to write, so never open a connection (or a pool) for it.
             return
 
@@ -99,23 +85,4 @@ class PostgresSink:
                 ]
                 await conn.copy_records_to_table(
                     "mcpsignals_tool_call", records=rows, columns=_TOOL_CALL_COLUMNS
-                )
-            if summaries:
-                rows = [
-                    (
-                        e.ts,
-                        e.session_id,
-                        e.server_name,
-                        e.server_version,
-                        e.user_id,
-                        e.org_id,
-                        e.call_count,
-                        e.distinct_tools_used,
-                        e.wall_duration_ms,
-                        e.error_count,
-                    )
-                    for e in summaries
-                ]
-                await conn.copy_records_to_table(
-                    "mcpsignals_session_summary", records=rows, columns=_SESSION_SUMMARY_COLUMNS
                 )

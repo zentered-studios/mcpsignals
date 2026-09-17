@@ -15,12 +15,8 @@ import json
 from datetime import datetime, timezone
 
 import pytest
-from mcpsignals.events import SessionSummaryEvent, ToolCallEvent
-from mcpsignals.sinks.postgres import (
-    _SESSION_SUMMARY_COLUMNS,
-    _TOOL_CALL_COLUMNS,
-    PostgresSink,
-)
+from mcpsignals.events import ToolCallEvent
+from mcpsignals.sinks.postgres import _TOOL_CALL_COLUMNS, PostgresSink
 
 TS = datetime(2026, 9, 1, 23, 25, 24, tzinfo=timezone.utc)
 
@@ -87,23 +83,6 @@ def make_tool_call(**overrides) -> ToolCallEvent:
     return ToolCallEvent(**defaults)
 
 
-def make_session_summary(**overrides) -> SessionSummaryEvent:
-    defaults = dict(
-        ts=TS,
-        session_id="session-id-value",
-        server_name="server-name-value",
-        server_version="server-version-value",
-        user_id="user-id-value",
-        org_id="org-id-value",
-        call_count=44,
-        distinct_tools_used=55,
-        wall_duration_ms=66,
-        error_count=77,
-    )
-    defaults.update(overrides)
-    return SessionSummaryEvent(**defaults)
-
-
 @pytest.mark.asyncio
 async def test_tool_call_rows_go_to_the_tool_call_table():
     pool = FakePool()
@@ -135,23 +114,6 @@ async def test_tool_call_record_is_aligned_with_its_column_list():
 
 
 @pytest.mark.asyncio
-async def test_session_summary_record_is_aligned_with_its_column_list():
-    pool = FakePool()
-    event = make_session_summary()
-
-    await PostgresSink(pool=pool).write([event])
-
-    call = pool.conn.calls[0]
-    assert call["table"] == "mcpsignals_session_summary"
-    assert call["columns"] == _SESSION_SUMMARY_COLUMNS
-
-    record = call["records"][0]
-    assert len(record) == len(_SESSION_SUMMARY_COLUMNS)
-    for column, value in zip(_SESSION_SUMMARY_COLUMNS, record, strict=True):
-        assert value == getattr(event, column), f"column {column!r} carries the wrong field"
-
-
-@pytest.mark.asyncio
 async def test_arguments_are_json_encoded_and_none_stays_none():
     pool = FakePool()
     args = {"a": 1, "nested": {"b": "c"}}
@@ -164,27 +126,6 @@ async def test_arguments_are_json_encoded_and_none_stays_none():
     records = pool.conn.calls[0]["records"]
     assert json.loads(records[0][index]) == args
     assert records[1][index] is None, "a null must stay null, not become the string 'null'"
-
-
-@pytest.mark.asyncio
-async def test_mixed_batch_writes_one_copy_per_table():
-    pool = FakePool()
-
-    await PostgresSink(pool=pool).write(
-        [
-            make_tool_call(),
-            make_session_summary(session_id="a"),
-            make_tool_call(tool_name="other"),
-            make_session_summary(session_id="b"),
-        ]
-    )
-
-    assert [call["table"] for call in pool.conn.calls] == [
-        "mcpsignals_tool_call",
-        "mcpsignals_session_summary",
-    ]
-    assert len(pool.conn.calls[0]["records"]) == 2
-    assert len(pool.conn.calls[1]["records"]) == 2
 
 
 @pytest.mark.asyncio

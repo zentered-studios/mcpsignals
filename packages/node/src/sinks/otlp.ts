@@ -16,8 +16,6 @@ import type { AnyEvent } from '../events.js';
  * convention are emitted as custom `mcpsignals.*` attributes rather than
  * forced into a semantically mismatched Stable attribute (see schema/
  * events.md's OTLP mapping note for the `transport` case specifically).
- * `session_summary` events have no span shape defined by the convention and
- * are not emitted by this sink.
  */
 export function otlpSink(): Sink {
   return {

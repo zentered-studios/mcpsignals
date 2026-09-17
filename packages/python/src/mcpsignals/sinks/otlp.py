@@ -14,7 +14,7 @@ Where our schema has no equivalent convention, we use a custom
 
 import json
 
-from mcpsignals.events import SessionSummaryEvent, ToolCallEvent
+from mcpsignals.events import ToolCallEvent
 
 
 class OtlpSink:
@@ -25,14 +25,11 @@ class OtlpSink:
             tracer = trace.get_tracer("mcpsignals")
         self._tracer = tracer
 
-    async def write(self, events: list[ToolCallEvent | SessionSummaryEvent]) -> None:
+    async def write(self, events: list[ToolCallEvent]) -> None:
         from opentelemetry.context import Context
         from opentelemetry.trace import SpanKind, Status, StatusCode
 
         for event in events:
-            if not isinstance(event, ToolCallEvent):
-                continue  # session_summary has no OTel span mapping; warehouse sinks carry it
-
             attributes = {
                 "gen_ai.operation.name": "execute_tool",
                 "gen_ai.tool.name": event.tool_name,

@@ -29,16 +29,7 @@ class ToolCallEvent:
     transport: str | None = None
 
 
-@dataclass
-class SessionSummaryEvent:
-    event_type: Literal["session_summary"] = field(init=False, default="session_summary")
-    ts: datetime = field(default=None)  # type: ignore[assignment]
-    session_id: str = ""
-    server_name: str = ""
-    server_version: str | None = None
-    user_id: str | None = None
-    org_id: str | None = None
-    call_count: int = 0
-    distinct_tools_used: int = 0
-    wall_duration_ms: int = 0
-    error_count: int = 0
+#: What a sink receives. There is one event type today, so this is an alias
+#: for `ToolCallEvent` rather than a union - it stays as the name sinks are
+#: written against, and as the seam a second event type would widen.
+Event = ToolCallEvent

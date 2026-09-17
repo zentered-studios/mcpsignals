@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import { postgresSink } from '../dist/index.mjs';
 
 const TOOL_CALL_COLUMNS = 19;
-const SESSION_SUMMARY_COLUMNS = 10;
 
 function makeToolCallEvent(overrides = {}) {
   return {
@@ -27,23 +26,6 @@ function makeToolCallEvent(overrides = {}) {
     arguments: null,
     intent: null,
     transport: null,
-    ...overrides
-  };
-}
-
-function makeSessionSummaryEvent(overrides = {}) {
-  return {
-    event_type: 'session_summary',
-    ts: new Date('2026-09-01T23:25:24.000Z'),
-    session_id: 'sess-1',
-    server_name: 's',
-    server_version: null,
-    user_id: null,
-    org_id: null,
-    call_count: 1,
-    distinct_tools_used: 1,
-    wall_duration_ms: 5,
-    error_count: 0,
     ...overrides
   };
 }
@@ -100,43 +82,6 @@ test('N tool_call events produce exactly one query with 19*N placeholders and a 
   assert.equal(values[TOOL_CALL_COLUMNS * 2 + 10], 42);
 });
 
-test('a mixed batch produces exactly two queries, one per table', async () => {
-  const pool = makeFakePool();
-  const sink = postgresSink({ pool });
-
-  await sink.write([
-    makeToolCallEvent(),
-    makeSessionSummaryEvent({ session_id: 'a' }),
-    makeToolCallEvent({ tool_name: 'other' }),
-    makeSessionSummaryEvent({ session_id: 'b' })
-  ]);
-
-  assert.equal(pool.calls.length, 2);
-  const toolCall = pool.calls.find(c => /insert into mcpsignals_tool_call/.test(c.text));
-  const summary = pool.calls.find(c => /insert into mcpsignals_session_summary/.test(c.text));
-  assert.ok(toolCall, 'one query must target the tool_call table');
-  assert.ok(summary, 'one query must target the session_summary table');
-
-  assert.equal(placeholders(toolCall.text).length, TOOL_CALL_COLUMNS * 2);
-  assert.equal(toolCall.values.length, TOOL_CALL_COLUMNS * 2);
-
-  assert.equal(placeholders(summary.text).length, SESSION_SUMMARY_COLUMNS * 2);
-  assert.equal(summary.values.length, SESSION_SUMMARY_COLUMNS * 2);
-  assert.equal(summary.values[1], 'a');
-  assert.equal(summary.values[SESSION_SUMMARY_COLUMNS + 1], 'b');
-});
-
-test('a batch of only session_summary events produces one query', async () => {
-  const pool = makeFakePool();
-  const sink = postgresSink({ pool });
-
-  await sink.write([makeSessionSummaryEvent()]);
-
-  assert.equal(pool.calls.length, 1);
-  assert.match(pool.calls[0].text, /insert into mcpsignals_session_summary/);
-  assert.equal(pool.calls[0].values.length, SESSION_SUMMARY_COLUMNS);
-});
-
 test('an empty batch never calls pool.query()', async () => {
   const pool = makeFakePool();
   const sink = postgresSink({ pool });
@@ -166,18 +111,13 @@ test('ts stays a Date and arguments stays an object in values (pg encodes them p
   assert.deepEqual(values[TOOL_CALL_COLUMNS + 16], args);
 });
 
-test('respects custom table names', async () => {
+test('respects a custom table name', async () => {
   const pool = makeFakePool();
-  const sink = postgresSink({
-    pool,
-    toolCallTable: 'custom_tool_call',
-    sessionSummaryTable: 'custom_summary'
-  });
+  const sink = postgresSink({ pool, toolCallTable: 'custom_tool_call' });
 
-  await sink.write([makeToolCallEvent(), makeSessionSummaryEvent()]);
+  await sink.write([makeToolCallEvent()]);
 
   assert.ok(pool.calls.some(c => /insert into custom_tool_call/.test(c.text)));
-  assert.ok(pool.calls.some(c => /insert into custom_summary/.test(c.text)));
 });
 
 // Postgres rejects a statement carrying more than 65535 bind parameters
@@ -222,21 +162,4 @@ test('a batch at exactly the bind-parameter ceiling still goes out as one statem
 
   assert.equal(pool.calls.length, 1, 'chunking must not kick in below the ceiling');
   assert.equal(pool.calls[0].values.length, rows * TOOL_CALL_COLUMNS);
-});
-
-test('session_summary rows are chunked on their own column count', async () => {
-  const pool = makeFakePool();
-  const sink = postgresSink({ pool });
-  const rows = 7000; // 7000 * 10 = 70000 bind parameters, over the ceiling
-
-  await sink.write(
-    Array.from({ length: rows }, (_, i) => makeSessionSummaryEvent({ session_id: `s-${i}` }))
-  );
-
-  assert.ok(pool.calls.length > 1);
-  for (const call of pool.calls) {
-    assert.ok(call.values.length <= PG_MAX_BIND_PARAMETERS);
-  }
-  const written = pool.calls.reduce((total, call) => total + call.values.length, 0);
-  assert.equal(written, rows * SESSION_SUMMARY_COLUMNS);
 });

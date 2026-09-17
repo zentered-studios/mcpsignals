@@ -28,23 +28,6 @@ function makeToolCallEvent(overrides = {}) {
   };
 }
 
-function makeSessionSummaryEvent(overrides = {}) {
-  return {
-    event_type: 'session_summary',
-    ts: new Date('2026-09-01T23:25:24.000Z'),
-    session_id: 'sess-1',
-    server_name: 's',
-    server_version: null,
-    user_id: null,
-    org_id: null,
-    call_count: 1,
-    distinct_tools_used: 1,
-    wall_duration_ms: 5,
-    error_count: 0,
-    ...overrides
-  };
-}
-
 // A minimal fake matching the D1Database Worker Bindings API surface the
 // sink relies on: prepare().bind() returns a statement, batch() takes the
 // whole array in one call (this is the assertion that matters - the sink
@@ -93,21 +76,11 @@ test('writes tool_call rows in a single batch() call, ts as epoch ms, success as
   assert.equal(failedRowValues[11], 0);
 });
 
-test('writes session_summary rows into the session summary table', async () => {
+test('a multi-event batch still goes through one batch() call', async () => {
   const db = makeFakeDb();
   const sink = d1Sink(db);
 
-  await sink.write([makeSessionSummaryEvent()]);
-
-  assert.equal(db.batchCalls.length, 1);
-  assert.match(db.batchCalls[0][0].query, /insert into mcpsignals_session_summary/);
-});
-
-test('mixed batches of both event types still go through one batch() call', async () => {
-  const db = makeFakeDb();
-  const sink = d1Sink(db);
-
-  await sink.write([makeToolCallEvent(), makeSessionSummaryEvent()]);
+  await sink.write([makeToolCallEvent(), makeToolCallEvent({ tool_name: 'other' })]);
 
   assert.equal(db.batchCalls.length, 1);
   assert.equal(db.batchCalls[0].length, 2);
@@ -124,16 +97,12 @@ test('an empty batch never calls db.batch()', async () => {
 
 test('respects custom table names', async () => {
   const db = makeFakeDb();
-  const sink = d1Sink(db, {
-    toolCallTable: 'custom_tool_call',
-    sessionSummaryTable: 'custom_summary'
-  });
+  const sink = d1Sink(db, { toolCallTable: 'custom_tool_call' });
 
-  await sink.write([makeToolCallEvent(), makeSessionSummaryEvent()]);
+  await sink.write([makeToolCallEvent()]);
 
-  const [toolCallStmt, summaryStmt] = db.batchCalls[0];
+  const [toolCallStmt] = db.batchCalls[0];
   assert.match(toolCallStmt.query, /insert into custom_tool_call/);
-  assert.match(summaryStmt.query, /insert into custom_summary/);
 });
 
 test('an oversized `arguments` payload is dropped (written as null) instead of risking the whole batch', async () => {

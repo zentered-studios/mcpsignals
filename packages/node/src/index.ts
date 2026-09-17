@@ -17,4 +17,4 @@ export { classifyError } from './error-kind.js';
 export type { RedactionConfig } from './redaction.js';
 export type { IntentCaptureOption } from './intent-capture.js';
 
-export type { ToolCallEvent, SessionSummaryEvent, AnyEvent, ErrorKind } from './events.js';
+export type { ToolCallEvent, AnyEvent, ErrorKind } from './events.js';

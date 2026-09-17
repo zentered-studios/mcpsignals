@@ -2,7 +2,7 @@ import json
 from datetime import datetime, timezone
 
 import pytest
-from mcpsignals.events import SessionSummaryEvent, ToolCallEvent
+from mcpsignals.events import ToolCallEvent
 from mcpsignals.sinks.bigquery import BigQuerySink
 
 TS = datetime(2026, 9, 1, 23, 25, 24, tzinfo=timezone.utc)
@@ -27,12 +27,6 @@ def make_tool_call(**overrides) -> ToolCallEvent:
     return ToolCallEvent(**defaults)
 
 
-def make_session_summary(**overrides) -> SessionSummaryEvent:
-    defaults = dict(ts=TS, session_id="sess-1", server_name="s", call_count=1)
-    defaults.update(overrides)
-    return SessionSummaryEvent(**defaults)
-
-
 async def test_tool_call_rows_go_to_the_tool_call_table():
     client = FakeClient()
     sink = BigQuerySink(dataset="d", client=client)
@@ -41,18 +35,6 @@ async def test_tool_call_rows_go_to_the_tool_call_table():
 
     assert [table_ref for table_ref, _ in client.calls] == ["d.tool_call"]
     assert len(client.calls[0][1]) == 1
-
-
-async def test_session_summary_rows_go_to_the_session_summary_table():
-    client = FakeClient()
-    sink = BigQuerySink(dataset="d", client=client)
-
-    await sink.write([make_session_summary()])
-
-    assert [table_ref for table_ref, _ in client.calls] == ["d.session_summary"]
-    row = client.calls[0][1][0]
-    assert row["session_id"] == "sess-1"
-    assert "event_type" not in row
 
 
 async def test_arguments_are_sent_as_a_json_string_for_the_json_column():
@@ -91,15 +73,14 @@ async def test_ts_is_iso_formatted_and_event_type_is_dropped():
     assert "event_type" not in row
 
 
-async def test_mixed_batch_makes_one_insert_per_event_type():
+async def test_a_batch_makes_one_insert_for_the_whole_batch():
     client = FakeClient()
     sink = BigQuerySink(dataset="d", client=client)
 
-    await sink.write([make_tool_call(), make_session_summary(), make_tool_call(tool_name="other")])
+    await sink.write([make_tool_call(), make_tool_call(tool_name="other")])
 
-    assert [table_ref for table_ref, _ in client.calls] == ["d.tool_call", "d.session_summary"]
+    assert [table_ref for table_ref, _ in client.calls] == ["d.tool_call"]
     assert len(client.calls[0][1]) == 2
-    assert len(client.calls[1][1]) == 1
 
 
 async def test_empty_batch_never_calls_the_client():

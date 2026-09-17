@@ -11,10 +11,18 @@ from typing import Any
 
 
 def _type_marker(value: Any) -> dict[str, str]:
+    # JSON type names, shared with the Node.js package (see redaction.ts) so a
+    # query on `__type` works the same over either package's events.
     if isinstance(value, bool):
-        type_name = "bool"
+        type_name = "boolean"
+    elif isinstance(value, (int, float)):
+        type_name = "number"
+    elif isinstance(value, str):
+        type_name = "string"
     elif isinstance(value, list):
         type_name = "array"
+    elif isinstance(value, dict):
+        type_name = "object"
     elif value is None:
         type_name = "null"
     else:

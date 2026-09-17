@@ -77,10 +77,9 @@ OpenTelemetry collector instead.
 | Instruments | `McpServer` | `MCPServer` and the low-level `Server` |
 
 Both packages write the same event contract, so a Node.js server and a
-Python server can share tables. One field differs: the `__type` marker
-inside `arguments` uses JSON type names in Node.js and Python type names in
-Python (see [Argument capture](#argument-capture-is-opt-in-and-redacted-by-default)),
-so a query on `__type` over a shared table must match both vocabularies.
+Python server can share tables and a query on `__type` (see
+[Argument capture](#argument-capture-is-opt-in-and-redacted-by-default))
+matches rows from either.
 
 ## Why this exists instead of a hosted analytics product
 
@@ -105,12 +104,11 @@ mean "record everything":
 - Capture (`captureArguments` / `capture_arguments`) is **off by default**:
   the `arguments` field is always null and no argument reaches a sink.
 - Turned on with no further configuration, you get **argument keys and value
-  types only**. Each value becomes a `{"__type": ...}` marker. The type
-  names are per language. For `{"query": "jane@example.com", "limit": 10}`:
-  - Node.js records `{"query": {"__type": "string"}, "limit": {"__type": "number"}}`
-    (JSON type names: `string`, `number`, `boolean`, `object`, `array`, `null`).
-  - Python records `{"query": {"__type": "str"}, "limit": {"__type": "int"}}`
-    (Python type names: `str`, `int`, `float`, `bool`, `dict`, `array`, `null`).
+  types only**. Each value becomes a `{"__type": ...}` marker. Both packages
+  use the same JSON type names (`string`, `number`, `boolean`, `object`,
+  `array`, `null`), so `{"query": "jane@example.com", "limit": 10}` is
+  recorded as `{"query": {"__type": "string"}, "limit": {"__type": "number"}}`
+  by either package.
 - To record real values, explicitly allowlist which keys are safe
   (`redaction.allow`). `redaction.deny` forces a key back to type-only even
   if `allow` also lists it.

@@ -178,7 +178,7 @@ async def test_redaction_default_records_types_not_values():
         await client.call_tool("search", {"query": "secret plans"})
         await asyncio.sleep(0.05)
 
-    assert sink.events[0].arguments == {"query": {"__type": "str"}}
+    assert sink.events[0].arguments == {"query": {"__type": "string"}}
 
 
 @pytest.mark.asyncio

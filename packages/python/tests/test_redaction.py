@@ -4,9 +4,9 @@ from mcpsignals.redaction import RedactionConfig, redact_arguments
 def test_default_no_config_records_types_only():
     result = redact_arguments({"query": "mugs", "limit": 10, "flag": True, "items": [1, 2]}, None)
     assert result == {
-        "query": {"__type": "str"},
-        "limit": {"__type": "int"},
-        "flag": {"__type": "bool"},
+        "query": {"__type": "string"},
+        "limit": {"__type": "number"},
+        "flag": {"__type": "boolean"},
         "items": {"__type": "array"},
     }
 
@@ -14,7 +14,7 @@ def test_default_no_config_records_types_only():
 def test_allowlist_reveals_only_named_keys():
     config = RedactionConfig(allow=["query"])
     result = redact_arguments({"query": "mugs", "secret": "shh"}, config)
-    assert result == {"query": "mugs", "secret": {"__type": "str"}}
+    assert result == {"query": "mugs", "secret": {"__type": "string"}}
 
 
 def test_denylist_alone_does_not_unlock_real_values_elsewhere():
@@ -25,13 +25,13 @@ def test_denylist_alone_does_not_unlock_real_values_elsewhere():
     # other field they didn't think to deny.
     config = RedactionConfig(deny=["secret"])
     result = redact_arguments({"query": "mugs", "secret": "shh"}, config)
-    assert result == {"query": {"__type": "str"}, "secret": {"__type": "str"}}
+    assert result == {"query": {"__type": "string"}, "secret": {"__type": "string"}}
 
 
 def test_denylist_combined_with_allowlist_overrides_allow():
     config = RedactionConfig(allow=["query", "secret"], deny=["secret"])
     result = redact_arguments({"query": "mugs", "secret": "shh"}, config)
-    assert result == {"query": "mugs", "secret": {"__type": "str"}}
+    assert result == {"query": "mugs", "secret": {"__type": "string"}}
 
 
 def test_custom_redactor_used_verbatim():

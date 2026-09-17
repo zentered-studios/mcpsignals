@@ -28,23 +28,6 @@ function makeToolCallEvent(overrides = {}) {
   };
 }
 
-function makeSessionSummaryEvent(overrides = {}) {
-  return {
-    event_type: 'session_summary',
-    ts: new Date('2026-09-01T23:25:24.000Z'),
-    session_id: 'sess-1',
-    server_name: 's',
-    server_version: null,
-    user_id: null,
-    org_id: null,
-    call_count: 1,
-    distinct_tools_used: 1,
-    wall_duration_ms: 5,
-    error_count: 0,
-    ...overrides
-  };
-}
-
 // A minimal fake matching the @google-cloud/bigquery surface the sink relies
 // on: client.dataset(name).table(name).insert(rows). Each insert() call is
 // recorded with the dataset and table it targeted.
@@ -70,14 +53,11 @@ test('uses the injected client and the default dataset/table names', async () =>
   const client = makeFakeClient();
   const sink = bigquerySink({ client });
 
-  await sink.write([makeToolCallEvent(), makeSessionSummaryEvent()]);
+  await sink.write([makeToolCallEvent()]);
 
   assert.deepEqual(
     client.inserts.map(({ dataset, table }) => ({ dataset, table })),
-    [
-      { dataset: 'mcpsignals', table: 'tool_call' },
-      { dataset: 'mcpsignals', table: 'session_summary' }
-    ]
+    [{ dataset: 'mcpsignals', table: 'tool_call' }]
   );
 });
 
@@ -86,18 +66,14 @@ test('respects custom dataset and table names', async () => {
   const sink = bigquerySink({
     client,
     dataset: 'custom_ds',
-    toolCallTable: 'custom_tool_call',
-    sessionSummaryTable: 'custom_summary'
+    toolCallTable: 'custom_tool_call'
   });
 
-  await sink.write([makeToolCallEvent(), makeSessionSummaryEvent()]);
+  await sink.write([makeToolCallEvent()]);
 
   assert.deepEqual(
     client.inserts.map(({ dataset, table }) => ({ dataset, table })),
-    [
-      { dataset: 'custom_ds', table: 'custom_tool_call' },
-      { dataset: 'custom_ds', table: 'custom_summary' }
-    ]
+    [{ dataset: 'custom_ds', table: 'custom_tool_call' }]
   );
 });
 
@@ -126,27 +102,20 @@ test('ts is written as an ISO string', async () => {
   const client = makeFakeClient();
   const sink = bigquerySink({ client });
 
-  await sink.write([makeToolCallEvent(), makeSessionSummaryEvent()]);
+  await sink.write([makeToolCallEvent()]);
 
   assert.equal(client.inserts[0].rows[0].ts, '2026-09-01T23:25:24.000Z');
-  assert.equal(client.inserts[1].rows[0].ts, '2026-09-01T23:25:24.000Z');
 });
 
-test('a mixed batch makes one insert() per event type', async () => {
+test('a batch makes exactly one insert() for the whole batch', async () => {
   const client = makeFakeClient();
   const sink = bigquerySink({ client });
 
-  await sink.write([
-    makeToolCallEvent(),
-    makeSessionSummaryEvent(),
-    makeToolCallEvent({ tool_name: 'other-tool' })
-  ]);
+  await sink.write([makeToolCallEvent(), makeToolCallEvent({ tool_name: 'other-tool' })]);
 
-  assert.equal(client.inserts.length, 2);
+  assert.equal(client.inserts.length, 1);
   assert.equal(client.inserts[0].table, 'tool_call');
   assert.equal(client.inserts[0].rows.length, 2);
-  assert.equal(client.inserts[1].table, 'session_summary');
-  assert.equal(client.inserts[1].rows.length, 1);
 });
 
 test('an empty batch never calls insert()', async () => {

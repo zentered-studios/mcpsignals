@@ -1,4 +1,4 @@
-from mcpsignals.events import SessionSummaryEvent, ToolCallEvent
+from mcpsignals.events import ToolCallEvent
 from mcpsignals.handle import InstrumentHandle, handle_for
 from mcpsignals.instrument import instrument
 from mcpsignals.redaction import RedactionConfig
@@ -9,5 +9,4 @@ __all__ = [
     "InstrumentHandle",
     "RedactionConfig",
     "ToolCallEvent",
-    "SessionSummaryEvent",
 ]

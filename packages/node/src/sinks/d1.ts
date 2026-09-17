@@ -3,7 +3,6 @@ import type { AnyEvent } from '../events.js';
 
 export interface D1SinkOptions {
   toolCallTable?: string;
-  sessionSummaryTable?: string;
 }
 
 interface D1PreparedStatement {
@@ -33,7 +32,7 @@ const MAX_ARGUMENTS_BYTES = 1_000_000;
 const encoder = new TextEncoder();
 
 /**
- * Writes rows into the tables defined by schema/events.md's D1 DDL, via a
+ * Writes rows into the table defined by schema/events.md's D1 DDL, via a
  * `D1Database` binding (Cloudflare Workers Worker Bindings API). Requires
  * `flushIntervalMs: null` (manual mode) on the buffer/instrument side, same
  * as any sink used from a request-scoped Workers runtime - see the Node
@@ -60,7 +59,6 @@ const encoder = new TextEncoder();
  */
 export function d1Sink(db: D1Database, options: D1SinkOptions = {}): Sink {
   const toolCallTable = options.toolCallTable ?? 'mcpsignals_tool_call';
-  const sessionSummaryTable = options.sessionSummaryTable ?? 'mcpsignals_session_summary';
 
   let warnedOversizedArguments = false;
 
@@ -82,9 +80,10 @@ export function d1Sink(db: D1Database, options: D1SinkOptions = {}): Sink {
 
   return {
     async write(events: AnyEvent[]): Promise<void> {
-      const statements: D1PreparedStatement[] = events.map(event => {
-        if (event.event_type === 'tool_call') {
-          return db
+      const statements: D1PreparedStatement[] = events
+        .filter(event => event.event_type === 'tool_call')
+        .map(event =>
+          db
             .prepare(
               `insert into ${toolCallTable}
                 (ts, server_name, server_version, tool_name, session_id, agent_id, client_name, client_version,
@@ -112,29 +111,8 @@ export function d1Sink(db: D1Database, options: D1SinkOptions = {}): Sink {
               boundArguments(event.arguments),
               event.intent,
               event.transport
-            );
-        }
-
-        return db
-          .prepare(
-            `insert into ${sessionSummaryTable}
-              (ts, session_id, server_name, server_version, user_id, org_id, call_count, distinct_tools_used,
-               wall_duration_ms, error_count)
-             values (?,?,?,?,?,?,?,?,?,?)`
-          )
-          .bind(
-            event.ts.getTime(),
-            event.session_id,
-            event.server_name,
-            event.server_version,
-            event.user_id,
-            event.org_id,
-            event.call_count,
-            event.distinct_tools_used,
-            event.wall_duration_ms,
-            event.error_count
-          );
-      });
+            )
+        );
 
       if (statements.length === 0) return;
       const results = await db.batch(statements);

@@ -3,7 +3,7 @@ import json
 import sys
 from typing import TextIO
 
-from mcpsignals.events import SessionSummaryEvent, ToolCallEvent
+from mcpsignals.events import ToolCallEvent
 
 
 class ConsoleSink:
@@ -20,7 +20,7 @@ class ConsoleSink:
     def __init__(self, stream: TextIO | None = None) -> None:
         self._stream = stream
 
-    async def write(self, events: list[ToolCallEvent | SessionSummaryEvent]) -> None:
+    async def write(self, events: list[ToolCallEvent]) -> None:
         stream = self._stream if self._stream is not None else sys.stdout
         for event in events:
             payload = dataclasses.asdict(event)

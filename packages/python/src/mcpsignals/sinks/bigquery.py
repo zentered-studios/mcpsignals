@@ -14,7 +14,7 @@ import asyncio
 import dataclasses
 import json
 
-from mcpsignals.events import SessionSummaryEvent, ToolCallEvent
+from mcpsignals.events import ToolCallEvent
 
 
 class BigQuerySink:
@@ -34,10 +34,7 @@ class BigQuerySink:
         row = dataclasses.asdict(event)
         row.pop("event_type", None)
         row["ts"] = event.ts.isoformat() if event.ts else None
-        if isinstance(event, ToolCallEvent):
-            row["arguments"] = (
-                json.dumps(row["arguments"]) if row["arguments"] is not None else None
-            )
+        row["arguments"] = json.dumps(row["arguments"]) if row["arguments"] is not None else None
         return row
 
     def _insert_sync(self, table: str, rows: list[dict]) -> None:
@@ -47,11 +44,8 @@ class BigQuerySink:
         if errors:
             raise RuntimeError(f"bigquery insert errors for {table_ref}: {errors}")
 
-    async def write(self, events: list[ToolCallEvent | SessionSummaryEvent]) -> None:
+    async def write(self, events: list[ToolCallEvent]) -> None:
         tool_calls = [self._row(e) for e in events if isinstance(e, ToolCallEvent)]
-        summaries = [self._row(e) for e in events if isinstance(e, SessionSummaryEvent)]
 
         if tool_calls:
             await asyncio.to_thread(self._insert_sync, "tool_call", tool_calls)
-        if summaries:
-            await asyncio.to_thread(self._insert_sync, "session_summary", summaries)

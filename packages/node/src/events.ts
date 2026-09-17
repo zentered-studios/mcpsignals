@@ -25,18 +25,10 @@ export interface ToolCallEvent {
   transport: string | null;
 }
 
-export interface SessionSummaryEvent {
-  event_type: 'session_summary';
-  ts: Date;
-  session_id: string;
-  server_name: string;
-  server_version: string | null;
-  user_id: string | null;
-  org_id: string | null;
-  call_count: number;
-  distinct_tools_used: number;
-  wall_duration_ms: number;
-  error_count: number;
-}
-
-export type AnyEvent = ToolCallEvent | SessionSummaryEvent;
+/**
+ * What a sink receives. There is one event type today, so this is an alias
+ * for `ToolCallEvent` rather than a union - it stays as the name sinks are
+ * written against, and as the seam a second event type would widen. Keep
+ * discriminating on `event_type` in sinks for the same reason.
+ */
+export type AnyEvent = ToolCallEvent;

@@ -1,6 +1,6 @@
 from typing import Protocol, runtime_checkable
 
-from mcpsignals.events import SessionSummaryEvent, ToolCallEvent
+from mcpsignals.events import ToolCallEvent
 
 
 @runtime_checkable
@@ -10,4 +10,4 @@ class Sink(Protocol):
     what EventBuffer already does upstream.
     """
 
-    async def write(self, events: list[ToolCallEvent | SessionSummaryEvent]) -> None: ...
+    async def write(self, events: list[ToolCallEvent]) -> None: ...

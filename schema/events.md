@@ -4,15 +4,20 @@ This is the contract both the Node.js and Python packages implement. If
 you are adding a sink or reading raw rows out of a warehouse, this file is
 the source of truth for field names, types, and semantics.
 
-There are two event types. Do not add a third without a documented reason -
-every event type is a table both language packages have to fill in
-identically forever.
+There is one event type, `tool_call`. Do not add a second without a
+documented reason - every event type is a table both language packages have
+to fill in identically forever.
 
-A sink receives a batch of events of either type. Each event carries an
-`event_type` discriminator (`"tool_call"` or `"session_summary"`) so a sink
-can route rows to the right table. That field is the only thing added on
-top of the columns below; it is not itself a column in either table's DDL,
-it is metadata the client library attaches before handing events to a sink.
+A sink receives a batch of events. Each event carries an `event_type`
+discriminator (`"tool_call"`) so a sink can route rows, and so a second
+event type can be added later without changing the shape a sink already
+handles. That field is the only thing added on top of the columns below; it
+is not itself a column in the table's DDL, it is metadata the client library
+attaches before handing events to a sink.
+
+A `session_summary` event type was specified here through v2 but no release
+ever emitted one, in either package. It was removed in v3 rather than left
+as a table that stays empty forever. See the note at the end of this file.
 
 ## `tool_call`
 
@@ -63,25 +68,6 @@ The four buckets, in the order they are checked:
 4. `internal` - everything else. This is the default bucket, not a specific
    signal.
 
-## `session_summary`
-
-Emitted once per session, on session end, where the transport exposes a
-detectable end-of-session point (long-lived `stdio` and stateful `http`
-sessions; not stateless per-request `http`).
-
-| field | type | nullable | notes |
-|---|---|---|---|
-| `ts` | timestamp | no | UTC. When the session was detected as ended. |
-| `session_id` | string | no | |
-| `server_name` | string | no | |
-| `server_version` | string | yes | |
-| `user_id` | string | yes | Host-supplied only, same rule as `tool_call.user_id`. |
-| `org_id` | string | yes | Host-supplied only. |
-| `call_count` | integer | no | Total `tool_call` events emitted for this `session_id`. |
-| `distinct_tools_used` | integer | no | Count of distinct `tool_name` values across this session's calls. |
-| `wall_duration_ms` | integer | no | Time from first call's `ts` to session end detection. |
-| `error_count` | integer | no | Count of this session's `tool_call` events where `success` is false. |
-
 ## Field naming conventions
 
 - All field names are `snake_case` in every sink, regardless of the target
@@ -130,22 +116,6 @@ create table mcpsignals_tool_call (
 create index on mcpsignals_tool_call (ts);
 create index on mcpsignals_tool_call (session_id);
 create index on mcpsignals_tool_call (server_name, tool_name);
-
-create table mcpsignals_session_summary (
-  ts                    timestamptz  not null,
-  session_id            text         not null,
-  server_name           text         not null,
-  server_version        text,
-  user_id               text,
-  org_id                text,
-  call_count            integer      not null,
-  distinct_tools_used   integer      not null,
-  wall_duration_ms      integer      not null,
-  error_count           integer      not null
-);
-
-create index on mcpsignals_session_summary (ts);
-create unique index on mcpsignals_session_summary (session_id);
 ```
 
 ### BigQuery
@@ -174,21 +144,6 @@ create table if not exists `mcpsignals.tool_call` (
 )
 partition by date(ts)
 cluster by server_name, tool_name;
-
-create table if not exists `mcpsignals.session_summary` (
-  ts                    timestamp   not null,
-  session_id            string      not null,
-  server_name           string      not null,
-  server_version        string,
-  user_id               string,
-  org_id                string,
-  call_count            int64       not null,
-  distinct_tools_used   int64       not null,
-  wall_duration_ms      int64       not null,
-  error_count           int64       not null
-)
-partition by date(ts)
-cluster by server_name;
 ```
 
 ### D1 (SQLite)
@@ -219,22 +174,6 @@ create table mcpsignals_tool_call (
 create index idx_mcpsignals_tool_call_ts on mcpsignals_tool_call (ts);
 create index idx_mcpsignals_tool_call_session_id on mcpsignals_tool_call (session_id);
 create index idx_mcpsignals_tool_call_server_tool on mcpsignals_tool_call (server_name, tool_name);
-
-create table mcpsignals_session_summary (
-  ts                    integer  not null,  -- Unix epoch milliseconds
-  session_id            text     not null,
-  server_name           text     not null,
-  server_version        text,
-  user_id               text,
-  org_id                text,
-  call_count            integer  not null,
-  distinct_tools_used   integer  not null,
-  wall_duration_ms      integer  not null,
-  error_count           integer  not null
-);
-
-create index idx_mcpsignals_session_summary_ts on mcpsignals_session_summary (ts);
-create unique index idx_mcpsignals_session_summary_session_id on mcpsignals_session_summary (session_id);
 ```
 
 Create these via `wrangler d1 migrations create <db-name> create_mcpsignals_tables`
@@ -277,22 +216,6 @@ create table mcpsignals_tool_call (
 engine = MergeTree
 partition by toYYYYMM(ts)
 order by (server_name, tool_name, ts);
-
-create table mcpsignals_session_summary (
-  ts                    DateTime64(3),
-  session_id            String,
-  server_name           LowCardinality(String),
-  server_version        Nullable(String),
-  user_id               Nullable(String),
-  org_id                Nullable(String),
-  call_count            UInt32,
-  distinct_tools_used   UInt32,
-  wall_duration_ms      UInt32,
-  error_count           UInt32
-)
-engine = MergeTree
-partition by toYYYYMM(ts)
-order by (server_name, session_id);
 ```
 
 ClickHouse has no native JSON column type available in every deployed
@@ -310,3 +233,48 @@ implementation for the field-by-field mapping to OpenTelemetry GenAI
 semantic-convention attribute names - that mapping is verified against the
 live spec at implementation time (this schema predates that verification and
 must not be treated as the source of truth for OTel attribute names).
+
+## The `session_summary` event type, removed in v3
+
+Through v2 this file specified a second event type, `session_summary`, as
+"emitted once per session, on session end", with `CREATE TABLE` DDL for
+every warehouse. No release ever emitted one. Both packages only ever
+constructed `tool_call` events; the type, the sink routing and the DDL all
+existed, and nothing filled them. Anyone who followed the DDL here built a
+`mcpsignals_session_summary` table, with a unique index on `session_id`,
+that stayed empty for the life of their deployment.
+
+v3 removes it rather than leave a promise the library does not keep. What
+that means for you:
+
+- **You never queried the table.** Drop it whenever convenient. Nothing
+  read or wrote it. `drop table mcpsignals_session_summary;`
+- **You imported the type.** `SessionSummaryEvent` is gone from both
+  packages' public exports. Nothing could construct one with real data, so
+  any code referencing it was either dead or building the event itself.
+- **You wrote your own sink.** Sinks take `AnyEvent[]` (Node) or
+  `list[ToolCallEvent]` (Python), which is now one event type rather than a
+  union. A sink that already branched on `event_type` keeps working, and
+  that branch is still the right shape to keep: it is the seam a future
+  second event type would widen.
+- **You set `sessionSummaryTable`** on `postgresSink`, `bigquerySink` or
+  `d1Sink`. That option is gone. Remove it.
+
+The per-session numbers the type described - `call_count`,
+`distinct_tools_used`, `wall_duration_ms`, `error_count` - are all derivable
+from the `tool_call` rows you already have:
+
+```sql
+select
+  session_id,
+  count(*)                                         as call_count,
+  count(distinct tool_name)                        as distinct_tools_used,
+  extract(epoch from (max(ts) - min(ts))) * 1000   as wall_duration_ms,
+  count(*) filter (where not success)              as error_count
+from mcpsignals_tool_call
+where session_id is not null
+group by session_id;
+```
+
+That query is what the event type would have precomputed. Running it on
+demand costs a scan and cannot disagree with the underlying rows.

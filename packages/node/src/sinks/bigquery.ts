@@ -8,7 +8,6 @@ export interface BigQuerySinkOptions {
   projectId?: string;
   dataset?: string;
   toolCallTable?: string;
-  sessionSummaryTable?: string;
 }
 
 interface BigQueryTable {
@@ -19,7 +18,7 @@ interface BigQueryClient {
 }
 
 /**
- * Streams rows into the tables defined by schema/events.md's BigQuery DDL.
+ * Streams rows into the table defined by schema/events.md's BigQuery DDL.
  * Requires the optional peer dependency `@google-cloud/bigquery` —
  * dynamically imported so it isn't required unless this sink is actually
  * used. Credentials come from Application Default Credentials, same as the
@@ -28,7 +27,6 @@ interface BigQueryClient {
 export function bigquerySink(options: BigQuerySinkOptions = {}): Sink {
   const dataset = options.dataset ?? 'mcpsignals';
   const toolCallTable = options.toolCallTable ?? 'tool_call';
-  const sessionSummaryTable = options.sessionSummaryTable ?? 'session_summary';
 
   let clientPromise: Promise<BigQueryClient> | undefined;
 
@@ -54,11 +52,6 @@ export function bigquerySink(options: BigQuerySinkOptions = {}): Sink {
       const toolCalls = events.filter(
         (e): e is Extract<AnyEvent, { event_type: 'tool_call' }> => e.event_type === 'tool_call'
       );
-      const sessionSummaries = events.filter(
-        (e): e is Extract<AnyEvent, { event_type: 'session_summary' }> =>
-          e.event_type === 'session_summary'
-      );
-
       if (toolCalls.length > 0) {
         await client
           .dataset(dataset)
@@ -84,26 +77,6 @@ export function bigquerySink(options: BigQuerySinkOptions = {}): Sink {
               arguments: e.arguments ? JSON.stringify(e.arguments) : null,
               intent: e.intent,
               transport: e.transport
-            }))
-          );
-      }
-
-      if (sessionSummaries.length > 0) {
-        await client
-          .dataset(dataset)
-          .table(sessionSummaryTable)
-          .insert(
-            sessionSummaries.map(e => ({
-              ts: e.ts.toISOString(),
-              session_id: e.session_id,
-              server_name: e.server_name,
-              server_version: e.server_version,
-              user_id: e.user_id,
-              org_id: e.org_id,
-              call_count: e.call_count,
-              distinct_tools_used: e.distinct_tools_used,
-              wall_duration_ms: e.wall_duration_ms,
-              error_count: e.error_count
             }))
           );
       }

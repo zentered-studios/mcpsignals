@@ -5,7 +5,13 @@ from mcpsignals.events import ToolCallEvent
 from mcpsignals.sinks.otlp import OtlpSink
 from opentelemetry import context as otel_context
 from opentelemetry import trace
-from opentelemetry.trace import NonRecordingSpan, SpanContext, SpanKind, TraceFlags
+from opentelemetry.trace import (
+    NonRecordingSpan,
+    SpanContext,
+    SpanKind,
+    StatusCode,
+    TraceFlags,
+)
 
 
 class RecordingSpan:
@@ -42,13 +48,21 @@ class RecordingTracer:
         return RecordingSpan(record)
 
 
-def make_event(tool_name: str, duration_ms: int) -> ToolCallEvent:
-    return ToolCallEvent(
+def make_event(tool_name: str = "my-tool", duration_ms: int = 5, **overrides) -> ToolCallEvent:
+    defaults = dict(
         ts=datetime(2026, 9, 1, 23, 25, 24, tzinfo=timezone.utc),
         server_name="s",
         tool_name=tool_name,
         duration_ms=duration_ms,
     )
+    defaults.update(overrides)
+    return ToolCallEvent(**defaults)
+
+
+async def span_for(event: ToolCallEvent) -> dict:
+    tracer = RecordingTracer()
+    await OtlpSink(tracer=tracer).write([event])
+    return tracer.spans[0]
 
 
 @pytest.mark.asyncio
@@ -83,3 +97,110 @@ async def test_each_tool_call_span_starts_from_root_context():
         start_ns = int(event.ts.timestamp() * 1_000_000_000)
         assert span["start_time"] == start_ns
         assert span["end_time"] == start_ns + event.duration_ms * 1_000_000
+
+
+# The attribute mapping is the sink's whole product, and every `gen_ai.*` /
+# `mcp.*` name below is Development status in the OTel GenAI semantic
+# conventions, so it moves. These tests pin what we emit today; a convention
+# change should make them fail loudly rather than drift silently. They also
+# hold the mapping level with the Node sink's, which has the same test.
+
+
+@pytest.mark.asyncio
+async def test_a_fully_populated_event_maps_to_the_documented_attribute_set():
+    span = await span_for(
+        make_event(
+            tool_name="search",
+            server_name="my-server",
+            server_version="1.2.3",
+            session_id="sess-1",
+            agent_id="agent-1",
+            client_name="my-client",
+            client_version="9.9",
+            user_id="user-1",
+            org_id="org-1",
+            transport="http",
+            intent="user asked",
+            arguments={"a": 1},
+            request_bytes=11,
+            response_bytes=22,
+        )
+    )
+
+    assert span["attributes"] == {
+        "gen_ai.operation.name": "execute_tool",
+        "gen_ai.tool.name": "search",
+        "mcpsignals.server.name": "my-server",
+        "mcpsignals.request.bytes": 11,
+        "mcpsignals.response.bytes": 22,
+        "mcp.session.id": "sess-1",
+        "mcpsignals.server.version": "1.2.3",
+        "mcpsignals.client.name": "my-client",
+        "mcpsignals.client.version": "9.9",
+        "mcpsignals.agent.id": "agent-1",
+        "enduser.id": "user-1",
+        "mcpsignals.org.id": "org-1",
+        "mcpsignals.transport": "http",
+        "mcpsignals.intent": "user asked",
+        "gen_ai.tool.call.arguments": '{"a": 1}',
+    }
+
+
+@pytest.mark.asyncio
+async def test_none_fields_are_omitted_rather_than_emitted_as_none_attributes():
+    # A None attribute value is not valid in OTel and an exporter may drop the
+    # whole span over one. The default event has None everywhere optional.
+    span = await span_for(make_event())
+
+    assert sorted(span["attributes"]) == [
+        "gen_ai.operation.name",
+        "gen_ai.tool.name",
+        "mcpsignals.request.bytes",
+        "mcpsignals.response.bytes",
+        "mcpsignals.server.name",
+    ]
+    assert all(value is not None for value in span["attributes"].values())
+
+
+@pytest.mark.asyncio
+async def test_a_successful_call_gets_status_ok_and_no_exception():
+    span = await span_for(make_event(success=True))
+
+    assert span["status"].status_code is StatusCode.OK
+    assert "exception" not in span
+
+
+@pytest.mark.asyncio
+async def test_a_failed_call_gets_status_error_and_records_an_exception():
+    span = await span_for(
+        make_event(
+            success=False,
+            error_kind="not_found",
+            error_message="record with that id was not found",
+        )
+    )
+
+    assert span["status"].status_code is StatusCode.ERROR
+    assert span["status"].description == "record with that id was not found"
+    assert span["attributes"]["mcpsignals.error.kind"] == "not_found"
+    assert str(span["exception"]) == "record with that id was not found"
+
+
+@pytest.mark.asyncio
+async def test_a_failure_with_no_message_records_no_exception():
+    span = await span_for(make_event(success=False, error_kind=None, error_message=None))
+
+    assert span["status"].status_code is StatusCode.ERROR
+    assert "exception" not in span, "no message means nothing to record as an exception"
+
+
+@pytest.mark.asyncio
+async def test_span_start_and_end_come_from_the_event_not_from_flush_time():
+    # Events are written in batches, potentially long after the call happened.
+    span = await span_for(make_event(duration_ms=1234))
+
+    start_ns = int(
+        datetime(2026, 9, 1, 23, 25, 24, tzinfo=timezone.utc).timestamp() * 1_000_000_000
+    )
+    assert span["start_time"] == start_ns
+    assert span["end_time"] == start_ns + 1234 * 1_000_000

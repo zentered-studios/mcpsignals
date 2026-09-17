@@ -238,6 +238,79 @@ unrelated events with it. `client_name` and `client_version`, which the
 client declares in its `initialize` handshake, take the same 128-char cap,
 as does `tool_name` where it is read off the request (Python).
 
+## Identity: `user_id` and `org_id`
+
+Two columns in the event schema are never filled in by the library:
+`user_id` and `org_id`. It has no way to know who a caller is, and it does
+not guess. You supply them with a resolver, which is the only thing that
+ever sets them.
+
+```ts
+instrument(server, {
+  serverName: 'my-server',
+  sinks: [consoleSink()],
+  resolveIdentity: ({ sessionId }) => {
+    const account = lookUpAccount(sessionId); // your auth layer, not ours
+    return account && { userId: account.id, orgId: account.orgId };
+  }
+});
+```
+
+```python
+def resolve_identity(ctx):
+    account = look_up_account(ctx)  # your auth layer, not ours
+    return (account.id, account.org_id) if account else (None, None)
+
+
+instrument(server, server_name="my-server", resolve_identity=resolve_identity)
+```
+
+The shapes differ. Node receives `{ sessionId }` and returns
+`{ userId, orgId }` (or nothing). Python receives the middleware's raw
+request context and returns a `(user_id, org_id)` tuple. Both may be sync or
+async.
+
+Three things hold in both packages:
+
+- **It runs after your handler**, so a slow resolver never lands in
+  `duration_ms`. `duration_ms` is wall time from call start to response, per
+  [`schema/events.md`](schema/events.md), and the resolver is outside that
+  window.
+- **A resolver that throws costs you the identity, nothing else.** The
+  failure is logged once, the event is still recorded with a null
+  `user_id`/`org_id`, and the tool result reaches the client untouched.
+- **Returning nothing is fine.** Anonymous calls record null, which is what
+  the column means.
+
+One caveat on the Node side. The resolver receives the session id from the
+transport context only. When intent capture is on and the calling agent
+supplies a `session_id` itself, the event records that value but the
+resolver still sees `undefined` for it, so the two can disagree on a stdio
+transport. Do not key identity off the resolver's `sessionId` alone if you
+rely on intent-capture session ids.
+
+## Buffering and flush timing
+
+Events are batched in memory, not written one per call. Both packages take
+the same two knobs:
+
+| | Node.js | Python | Default |
+|---|---|---|---|
+| Flush after N events | `bufferSize` | `buffer_size` | 20 |
+| Flush every N | `flushIntervalMs` | `flush_interval_s` | 5000 ms / 5.0 s |
+
+Whichever comes first wins, plus a best-effort flush on shutdown. Passing
+`null` / `None` as the interval switches to manual mode, which drops both
+the timer and the shutdown hook and leaves every flush to you. That is the
+right setting on request-scoped runtimes, covered in the
+[Node.js](packages/node/README.md#request-scoped-runtimes-cloudflare-workers)
+and [Python](packages/python/README.md#request-scoped-runtimes-and-manual-flushing)
+package READMEs.
+
+Raising `bufferSize` trades memory and worst-case loss for fewer round
+trips: a crash loses whatever is still buffered, so a larger buffer loses
+more, and a sink holds the whole batch in memory while it writes.
+
 ## What this is not
 
 - Not a dashboard or a chart. Point your own BI tool at the warehouse.

@@ -56,6 +56,64 @@ Off by default: no tool arguments are recorded unless you opt in with
 value types** are recorded, never values. See the root README's redaction
 section before enabling this in anything handling real user data.
 
+## Identity: `user_id` and `org_id`
+
+`resolve_identity` is the only thing that ever fills in `user_id` and
+`org_id`. Without it both stay `None` on every event.
+
+```python
+def resolve_identity(ctx):
+    account = look_up_account(ctx)  # your auth layer, not ours
+    return (account.id, account.org_id) if account else (None, None)
+
+
+instrument(server, server_name="my-server", resolve_identity=resolve_identity)
+```
+
+It receives the middleware's `ServerRequestContext` and returns a
+`(user_id, org_id)` tuple. It may be a plain function or a coroutine;
+either is awaited correctly. Returning `(None, None)` records a null
+identity, which is what the column means for an anonymous call.
+
+The Node.js package differs here: it passes `{ sessionId }` rather than the
+raw context, and returns an object. Porting a resolver between the two means
+rewriting both ends. Note that the context Python hands you carries no
+session id of its own, for the reason in the limitation below.
+
+It runs **after** your handler settles, so a slow resolver never lands in
+`duration_ms` (wall time from call start to response, per
+[`schema/events.md`](../../schema/events.md)). A resolver that raises is
+logged once and costs you the identity on that event, nothing else: the
+event is still recorded, and your handler's result or exception reaches the
+client untouched.
+
+## Buffering and flush timing
+
+Events are batched in memory rather than written one per call.
+`buffer_size` (default 20) flushes after that many events;
+`flush_interval_s` (default 5.0) flushes on a timer. Whichever comes first
+wins, plus a best-effort `atexit` flush.
+
+```python
+instrument(
+    server,
+    server_name="my-server",
+    sinks=[PostgresSink()],
+    buffer_size=100,  # fewer, larger writes
+    flush_interval_s=10.0,
+)
+```
+
+Raising `buffer_size` trades memory and worst-case loss for fewer round
+trips: a crash loses whatever is still buffered.
+
+The `atexit` flush is best-effort only. It needs an event loop that may not
+exist at interpreter shutdown, and it logs a warning and drops the buffer
+when there is none. Anything that must not be lost should go through an
+explicit `await handle_for(server).flush()` before you shut down.
+
+`flush_interval_s=None` is manual mode, covered next.
+
 ## Request-scoped runtimes and manual flushing
 
 `instrument()` returns the server unchanged. `handle_for(server)` returns an

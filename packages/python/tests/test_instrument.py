@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from mcp.client.client import Client
@@ -438,3 +439,63 @@ async def test_raising_resolve_identity_never_reaches_the_client(caplog):
     records = _mcpsignals_records(caplog)
     assert len(records) == 1
     assert "identity service down" in records[0].getMessage()
+
+
+# Timing (#27): `duration_ms` is wall time from call start to response
+# (schema/events.md), so `resolve_identity` runs after the handler, outside
+# the timed window. `ts` stays anchored at call start.
+
+
+@pytest.mark.asyncio
+async def test_duration_ms_excludes_resolve_identity():
+    order: list[str] = []
+
+    async def slow_identity(ctx):
+        await asyncio.sleep(0.2)
+        order.append("resolver")
+        return ("u-1", "o-1")
+
+    server, sink = build_server(resolve_identity=slow_identity)
+
+    @server.tool()
+    def instant() -> str:
+        order.append("handler")
+        return "ok"
+
+    async with Client(server) as client:
+        result = await client.call_tool("instant", {})
+        await asyncio.sleep(0.05)
+
+    assert result.content[0].text == "ok"
+    assert len(sink.events) == 1
+    event = sink.events[0]
+    assert event.duration_ms < 100, f"duration_ms {event.duration_ms} includes the resolver"
+    # The resolver still ran, after the handler, and its result lands on the event.
+    assert order == ["handler", "resolver"]
+    assert event.user_id == "u-1"
+    assert event.org_id == "o-1"
+
+
+@pytest.mark.asyncio
+async def test_ts_is_when_the_call_started_not_when_it_finished():
+    handler_end: list[datetime] = []
+
+    server, sink = build_server()
+
+    @server.tool()
+    async def slow() -> str:
+        await asyncio.sleep(0.05)
+        handler_end.append(datetime.now(timezone.utc))
+        return "ok"
+
+    async with Client(server) as client:
+        await client.call_tool("slow", {})
+        await asyncio.sleep(0.05)
+
+    assert len(sink.events) == 1
+    event = sink.events[0]
+    assert handler_end
+    assert event.ts <= handler_end[0] - timedelta(milliseconds=40), (
+        f"ts {event.ts.isoformat()} is not at least 40 ms before the handler "
+        f"finished at {handler_end[0].isoformat()}"
+    )

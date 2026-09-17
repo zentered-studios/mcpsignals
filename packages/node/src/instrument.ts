@@ -127,6 +127,15 @@ export function instrument(server: McpServer, options: InstrumentOptions): Instr
       return fallback;
     }
   };
+  /** `guarded` for an async step: a throw or a rejection logs once and yields `fallback`. */
+  const guardedAsync = async <T>(step: string, fn: () => Promise<T>, fallback: T): Promise<T> => {
+    try {
+      return await fn();
+    } catch (error) {
+      warnOnce(step, error);
+      return fallback;
+    }
+  };
 
   const originalRegisterTool = server.registerTool.bind(server);
 
@@ -173,25 +182,31 @@ export function instrument(server: McpServer, options: InstrumentOptions): Instr
       }
 
       const sessionId = ctx.sessionId ?? sessionIdFromArgs ?? null;
-      // A host resolver that throws or rejects records a null identity; the
-      // handler still runs. (#27 covers where this runs relative to the timer.)
-      let identity: { userId?: string; orgId?: string } = {};
-      try {
-        identity = (await options.resolveIdentity?.({ sessionId: ctx.sessionId })) ?? {};
-      } catch (error) {
-        warnOnce('resolveIdentity', error);
-      }
 
       /**
-       * Builds and pushes the event. Every caller wraps this in `guarded`, so
-       * a failure anywhere in here (client info, redaction, the buffer push)
-       * is logged once and the event is dropped, never surfaced to the client.
-       * Redaction is guarded on its own so a broken redactor still leaves an
-       * event behind, recorded with `arguments: null` rather than the raw args.
+       * Builds and pushes the event. Every caller wraps this in `guardedAsync`,
+       * so a failure anywhere in here (identity, client info, redaction, the
+       * buffer push) is logged once and the event is dropped, never surfaced
+       * to the client. Redaction and `resolveIdentity` are guarded on their
+       * own so a broken redactor or resolver still leaves an event behind,
+       * recorded with `arguments: null` / a null identity.
+       *
+       * `durationMs` is measured by the caller the moment the handler settles.
+       * `resolveIdentity` runs in here, after the handler, so its latency is
+       * outside the timed window: `duration_ms` is wall time from call start
+       * to response, per schema/events.md.
        */
-      const push = (
+      const push = async (
+        durationMs: number,
         partial: Pick<ToolCallEvent, 'success' | 'error_kind' | 'error_message' | 'response_bytes'>
       ) => {
+        // A host resolver that throws or rejects records a null identity.
+        let identity: { userId?: string; orgId?: string } = {};
+        try {
+          identity = (await options.resolveIdentity?.({ sessionId: ctx.sessionId })) ?? {};
+        } catch (error) {
+          warnOnce('resolveIdentity', error);
+        }
         // getClientVersion() is deprecated in favor of reading client identity off the
         // per-request `_meta` envelope, but the SDK's own deprecation note says the accessor
         // "remains functional" and is backfilled per request on 2026-07-28-era connections too.
@@ -215,7 +230,7 @@ export function instrument(server: McpServer, options: InstrumentOptions): Instr
           client_version: clientInfo?.version ?? null,
           user_id: identity.userId ?? null,
           org_id: identity.orgId ?? null,
-          duration_ms: Math.round(performance.now() - start),
+          duration_ms: durationMs,
           request_bytes: requestBytes,
           arguments: recordedArguments,
           intent,
@@ -231,12 +246,13 @@ export function instrument(server: McpServer, options: InstrumentOptions): Instr
       try {
         result = (await invoke(cleanArgs)) as ToolResultLike;
       } catch (error) {
-        guarded(
+        const durationMs = Math.round(performance.now() - start);
+        await guardedAsync(
           'event recording',
-          () => {
+          async () => {
             const message = error instanceof Error ? error.message : String(error);
             const truncated = message.length > 2000 ? message.slice(0, 2000) : message;
-            push({
+            await push(durationMs, {
               success: false,
               error_kind: classifyError(truncated),
               error_message: truncated,
@@ -248,20 +264,21 @@ export function instrument(server: McpServer, options: InstrumentOptions): Instr
         throw error;
       }
 
-      guarded(
+      const durationMs = Math.round(performance.now() - start);
+      await guardedAsync(
         'event recording',
-        () => {
+        async () => {
           const responseBytes = guarded('response byte count', () => byteLength(result), 0);
           if (result?.isError) {
             const errorMessage = extractErrorMessage(result);
-            push({
+            await push(durationMs, {
               success: false,
               error_kind: classifyError(errorMessage),
               error_message: errorMessage,
               response_bytes: responseBytes
             });
           } else {
-            push({
+            await push(durationMs, {
               success: true,
               error_kind: null,
               error_message: null,

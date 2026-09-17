@@ -428,3 +428,58 @@ test('telemetry failure: a BigInt argument cannot be JSON-serialized, but the ha
     errorLog.mock.restore();
   }
 });
+
+// Timing (#27): `duration_ms` is wall time from call start to response
+// (schema/events.md), so `resolveIdentity` runs after the handler, outside
+// the timed window. `ts` stays anchored at call start.
+
+test('duration_ms excludes resolveIdentity: a 200 ms resolver plus an instant tool records well under 100 ms', async () => {
+  const order = [];
+  const { server, events } = createInstrumentedServer({
+    resolveIdentity: async () => {
+      await new Promise(resolve => setTimeout(resolve, 200));
+      order.push('resolver');
+      return { userId: 'u-1', orgId: 'o-1' };
+    }
+  });
+  server.registerTool('instant', { inputSchema: z.object({}) }, async () => {
+    order.push('handler');
+    return { content: [{ type: 'text', text: 'ok' }] };
+  });
+  const client = await connectClient(server);
+
+  const result = await client.callTool({ name: 'instant', arguments: {} });
+  assert.equal(result.content[0].text, 'ok');
+
+  await new Promise(resolve => setTimeout(resolve, 10));
+  assert.equal(events.length, 1);
+  assert.ok(
+    events[0].duration_ms < 100,
+    `duration_ms ${events[0].duration_ms} includes the 200 ms identity resolver`
+  );
+  // The resolver still ran, after the handler, and its result lands on the event.
+  assert.deepEqual(order, ['handler', 'resolver']);
+  assert.equal(events[0].user_id, 'u-1');
+  assert.equal(events[0].org_id, 'o-1');
+});
+
+test('ts is when the call started, not when it finished', async () => {
+  let handlerSawAt = 0;
+  const { server, events } = createInstrumentedServer();
+  server.registerTool('slow', { inputSchema: z.object({}) }, async () => {
+    await new Promise(resolve => setTimeout(resolve, 50));
+    handlerSawAt = Date.now();
+    return { content: [{ type: 'text', text: 'ok' }] };
+  });
+  const client = await connectClient(server);
+
+  await client.callTool({ name: 'slow', arguments: {} });
+
+  await new Promise(resolve => setTimeout(resolve, 10));
+  assert.equal(events.length, 1);
+  assert.ok(events[0].ts instanceof Date);
+  assert.ok(
+    events[0].ts.getTime() <= handlerSawAt - 40,
+    `ts ${events[0].ts.toISOString()} is not at least 40 ms before the handler finished at ${new Date(handlerSawAt).toISOString()}`
+  );
+});

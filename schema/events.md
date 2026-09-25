@@ -72,7 +72,8 @@ A server that already knows why a call failed records it directly:
   result unchanged, `_meta` included.
 - Events pushed to `EventBuffer` directly: set `error_kind` on the event.
 
-Both packages export the valid values as `ERROR_KINDS`.
+Both packages export the valid values as `ERROR_KINDS` and the membership
+check as `isErrorKind` / `is_error_kind`.
 
 #### The heuristic
 
@@ -90,9 +91,11 @@ in this order:
 Known false-positive mode: a genuine internal failure whose message happens
 to contain the words "not found" (e.g. `"config key 'timeout' not found in
 environment"`) will bucket as `not_found` even though nothing the user asked
-for was missing. Known false-negative mode: an expected denial whose message
+for was missing. An undeclared denial never buckets as `auth_required` or
+`payment_required`: a message containing "required" (e.g. `"Payment
+required."`, `"Login required."`) buckets as `validation`, and one that
 matches no pattern (e.g. `"Sign in to use this tool."`) buckets as
-`internal`. Declare the kind to avoid both. Always treat `success` as the
+`internal`. Declare the kind to avoid all three. Always treat `success` as the
 authoritative pass/fail signal and `error_kind` as a filter on top of it,
 never the reverse.
 

@@ -2,7 +2,23 @@
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Literal
+from typing import Any, Literal, get_args
+
+#: Every value `error_kind` can take. `classify_error` only produces some of
+#: them; see schema/events.md.
+ErrorKind = Literal[
+    "not_found",
+    "empty",
+    "validation",
+    "auth_required",
+    "payment_required",
+    "internal",
+]
+ERROR_KINDS: tuple[ErrorKind, ...] = get_args(ErrorKind)
+
+#: `_meta` key a tool handler sets on an `isError` result to record the
+#: `error_kind` it already knows, instead of relying on `classify_error`.
+ERROR_KIND_META_KEY = "mcpsignals/error_kind"
 
 
 @dataclass
@@ -20,7 +36,7 @@ class ToolCallEvent:
     org_id: str | None = None
     duration_ms: int = 0
     success: bool = True
-    error_kind: str | None = None
+    error_kind: ErrorKind | None = None
     error_message: str | None = None
     request_bytes: int = 0
     response_bytes: int = 0

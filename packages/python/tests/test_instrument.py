@@ -2,14 +2,15 @@ import asyncio
 import dataclasses
 import json
 import logging
+import sys
 from datetime import datetime, timedelta, timezone
 
 import pytest
 from mcp.client.client import Client
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
-from mcp.types import Implementation
-from mcpsignals import InstrumentHandle, handle_for, instrument
+from mcp.types import CallToolResult, Implementation, TextContent
+from mcpsignals import ERROR_KIND_META_KEY, InstrumentHandle, handle_for, instrument
 from mcpsignals.events import ToolCallEvent
 from mcpsignals.intent_capture import MAX_IDENTIFIER_LENGTH, MAX_INTENT_LENGTH
 from mcpsignals.redaction import RedactionConfig
@@ -144,6 +145,106 @@ async def test_error_path_explicit_is_error_result_records_failure():
     assert result.is_error
     assert len(sink.events) == 1
     assert sink.events[0].success is False
+
+
+@pytest.mark.asyncio
+async def test_explicit_error_kind_auth_required_keeps_message():
+    server, sink = build_server()
+
+    @server.tool()
+    def fee() -> CallToolResult:
+        return CallToolResult(
+            content=[
+                TextContent(type="text", text="Sign in at https://example.com to use this tool.")
+            ],
+            is_error=True,
+            _meta={ERROR_KIND_META_KEY: "auth_required"},
+        )
+
+    async with Client(server) as client:
+        result = await client.call_tool("fee", {})
+        await handle_for(server).flush()
+
+    assert result.content[0].text == "Sign in at https://example.com to use this tool."
+    assert sink.events[0].success is False
+    assert sink.events[0].error_kind == "auth_required"
+
+
+@pytest.mark.asyncio
+async def test_explicit_error_kind_payment_required():
+    server, sink = build_server()
+
+    @server.tool()
+    def fee() -> CallToolResult:
+        return CallToolResult(
+            content=[TextContent(type="text", text="Get filing fee requires an active plan.")],
+            is_error=True,
+            _meta={ERROR_KIND_META_KEY: "payment_required"},
+        )
+
+    async with Client(server) as client:
+        await client.call_tool("fee", {})
+        await handle_for(server).flush()
+
+    assert sink.events[0].success is False
+    assert sink.events[0].error_kind == "payment_required"
+
+
+@pytest.mark.asyncio
+async def test_explicit_error_kind_wins_over_message_heuristic():
+    server, sink = build_server()
+
+    @server.tool()
+    def fee() -> CallToolResult:
+        return CallToolResult(
+            content=[TextContent(type="text", text="No current fee on file for that form.")],
+            is_error=True,
+            _meta={ERROR_KIND_META_KEY: "not_found"},
+        )
+
+    async with Client(server) as client:
+        await client.call_tool("fee", {})
+        await handle_for(server).flush()
+
+    assert sink.events[0].error_kind == "not_found"
+
+
+@pytest.mark.asyncio
+async def test_unknown_explicit_error_kind_falls_back_to_heuristic():
+    server, sink = build_server()
+
+    @server.tool()
+    def fee() -> CallToolResult:
+        return CallToolResult(
+            content=[TextContent(type="text", text="widget not found")],
+            is_error=True,
+            _meta={ERROR_KIND_META_KEY: "teapot"},
+        )
+
+    async with Client(server) as client:
+        await client.call_tool("fee", {})
+        await handle_for(server).flush()
+
+    assert sink.events[0].error_kind == "not_found"
+
+
+@pytest.mark.asyncio
+async def test_explicit_error_kind_on_successful_result_is_ignored():
+    server, sink = build_server()
+
+    @server.tool()
+    def fee() -> CallToolResult:
+        return CallToolResult(
+            content=[TextContent(type="text", text="ok")],
+            _meta={ERROR_KIND_META_KEY: "auth_required"},
+        )
+
+    async with Client(server) as client:
+        await client.call_tool("fee", {})
+        await handle_for(server).flush()
+
+    assert sink.events[0].success is True
+    assert sink.events[0].error_kind is None
 
 
 @pytest.mark.asyncio
@@ -716,3 +817,48 @@ async def test_unserializable_redactor_never_costs_the_rest_of_the_flush():
     assert len(written) == 2, "both events must reach the sink"
     assert written[0].arguments is None, "the unserializable one is recorded as None"
     assert written[1].arguments == {"text": "kept"}, "the healthy one is untouched"
+
+
+def test_declared_error_kind_reads_snake_case_meta():
+    from mcpsignals.instrument import _declared_error_kind
+
+    result = {"is_error": True, "meta": {ERROR_KIND_META_KEY: "auth_required"}}
+    assert _declared_error_kind(result) == "auth_required"
+    result = {"is_error": True, "_meta": None, "meta": {ERROR_KIND_META_KEY: "auth_required"}}
+    assert _declared_error_kind(result) == "auth_required"
+
+
+def test_declared_error_kind_prefers_wire_meta_over_snake_case():
+    from mcpsignals.instrument import _declared_error_kind
+
+    result = {
+        "isError": True,
+        "_meta": {ERROR_KIND_META_KEY: "payment_required"},
+        "meta": {ERROR_KIND_META_KEY: "auth_required"},
+    }
+    assert _declared_error_kind(result) == "payment_required"
+
+
+@pytest.mark.asyncio
+async def test_declared_error_kind_that_raises_still_records_the_failed_call(monkeypatch):
+    def boom(result):
+        raise RuntimeError("boom")
+
+    # `mcpsignals.instrument` the attribute is the function; patch the module.
+    monkeypatch.setattr(sys.modules["mcpsignals.instrument"], "_declared_error_kind", boom)
+    server, sink = build_server()
+
+    @server.tool()
+    def fee() -> CallToolResult:
+        return CallToolResult(
+            content=[TextContent(type="text", text="widget not found")],
+            is_error=True,
+        )
+
+    async with Client(server) as client:
+        await client.call_tool("fee", {})
+        await handle_for(server).flush()
+
+    assert len(sink.events) == 1
+    assert sink.events[0].success is False
+    assert sink.events[0].error_kind == "not_found"

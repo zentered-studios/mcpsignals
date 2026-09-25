@@ -13,8 +13,9 @@ export type { D1SinkOptions } from './sinks/d1.js';
 export { otlpSink } from './sinks/otlp.js';
 export type { Sink } from './sinks/types.js';
 
-export { classifyError } from './error-kind.js';
+export { classifyError, isErrorKind } from './error-kind.js';
 export type { RedactionConfig } from './redaction.js';
 export type { IntentCaptureOption } from './intent-capture.js';
 
+export { ERROR_KINDS, ERROR_KIND_META_KEY } from './events.js';
 export type { ToolCallEvent, AnyEvent, ErrorKind } from './events.js';

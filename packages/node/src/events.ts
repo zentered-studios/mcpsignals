@@ -1,6 +1,22 @@
 /** Matches schema/events.md. Field names are snake_case to match every sink's wire format. */
 
-export type ErrorKind = 'not_found' | 'empty' | 'validation' | 'internal';
+/** Every value `error_kind` can take. `classifyError` only produces some of them; see schema/events.md. */
+export const ERROR_KINDS = Object.freeze([
+  'not_found',
+  'empty',
+  'validation',
+  'auth_required',
+  'payment_required',
+  'internal'
+] as const);
+
+export type ErrorKind = (typeof ERROR_KINDS)[number];
+
+/**
+ * `_meta` key a tool handler sets on an `isError` result to record the
+ * `error_kind` it already knows, instead of relying on `classifyError`.
+ */
+export const ERROR_KIND_META_KEY = 'mcpsignals/error_kind';
 
 export interface ToolCallEvent {
   event_type: 'tool_call';

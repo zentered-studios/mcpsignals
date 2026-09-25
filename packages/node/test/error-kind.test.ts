@@ -1,6 +1,28 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { classifyError } from 'mcpsignals';
+import { classifyError, ERROR_KINDS, isErrorKind } from 'mcpsignals';
+
+test('ERROR_KINDS lists every value error_kind can take', () => {
+  assert.deepEqual(ERROR_KINDS, [
+    'not_found',
+    'empty',
+    'validation',
+    'auth_required',
+    'payment_required',
+    'internal'
+  ]);
+});
+
+test('ERROR_KINDS cannot be mutated at runtime', () => {
+  assert.throws(() => (ERROR_KINDS as unknown as string[]).push('teapot'), TypeError);
+  assert.equal(isErrorKind('teapot'), false);
+});
+
+test('isErrorKind accepts only ERROR_KINDS values', () => {
+  assert.equal(isErrorKind('payment_required'), true);
+  assert.equal(isErrorKind('teapot'), false);
+  assert.equal(isErrorKind(undefined), false);
+});
 
 test('error_kind: null when there is no message', () => {
   assert.equal(classifyError(undefined), null);

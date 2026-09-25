@@ -1,7 +1,7 @@
 import type { McpServer } from '@modelcontextprotocol/server';
 import type { Sink } from './sinks/types.js';
-import type { ToolCallEvent } from './events.js';
-import { classifyError } from './error-kind.js';
+import { ERROR_KIND_META_KEY, type ToolCallEvent } from './events.js';
+import { classifyError, isErrorKind } from './error-kind.js';
 import { applyRedaction, type RedactionConfig } from './redaction.js';
 import {
   extractAndStripIntent,
@@ -64,6 +64,7 @@ interface ToolCallContext {
 interface ToolResultLike {
   content?: Array<{ type: string; text?: string }>;
   isError?: boolean;
+  _meta?: Record<string, unknown>;
 }
 
 // TextEncoder rather than Buffer.byteLength: this runs on every tool call,
@@ -307,9 +308,18 @@ export function instrument(server: McpServer, options: InstrumentOptions): Instr
           const responseBytes = guarded('response byte count', () => byteLength(result), 0);
           if (result?.isError) {
             const errorMessage = extractErrorMessage(result);
+            // A kind the handler declared wins; an unknown value falls back to the heuristic.
+            // Guarded on its own so a throwing `_meta` costs only the declared kind, not the event.
+            const declaredKind = guarded(
+              'declared error kind',
+              // `_meta` is the MCP protocol's field name.
+              // oxlint-disable-next-line no-underscore-dangle
+              () => result._meta?.[ERROR_KIND_META_KEY],
+              undefined
+            );
             await push(durationMs, {
               success: false,
-              error_kind: classifyError(errorMessage),
+              error_kind: isErrorKind(declaredKind) ? declaredKind : classifyError(errorMessage),
               error_message: errorMessage,
               response_bytes: responseBytes
             });

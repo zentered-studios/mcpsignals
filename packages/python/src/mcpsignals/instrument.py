@@ -41,8 +41,8 @@ from datetime import datetime, timezone
 from typing import Any
 
 from mcpsignals.buffer import EventBuffer
-from mcpsignals.error_kind import ERROR_KIND_META_KEY, ERROR_KINDS, classify_error
-from mcpsignals.events import ToolCallEvent
+from mcpsignals.error_kind import classify_error, is_error_kind
+from mcpsignals.events import ERROR_KIND_META_KEY, ErrorKind, ToolCallEvent
 from mcpsignals.handle import InstrumentHandle
 from mcpsignals.handle import register as _register_handle
 from mcpsignals.intent_capture import (
@@ -78,11 +78,11 @@ def _result_content(result: Any) -> Any:
     return getattr(result, "content", None)
 
 
-def _declared_error_kind(result: Any) -> str | None:
+def _declared_error_kind(result: Any) -> ErrorKind | None:
     """The `error_kind` a handler set in the result's `_meta`, if it is a known value."""
     meta = result.get("_meta") if isinstance(result, Mapping) else getattr(result, "meta", None)
     kind = meta.get(ERROR_KIND_META_KEY) if isinstance(meta, Mapping) else None
-    return kind if kind in ERROR_KINDS else None
+    return kind if is_error_kind(kind) else None
 
 
 def _content_to_text(content: Any) -> str | None:
@@ -249,7 +249,7 @@ def instrument(
                     _warn_once("resolve_identity", exc)
                     user_id, org_id = None, None
 
-            declared_kind: str | None = None
+            declared_kind: ErrorKind | None = None
             if error is not None:
                 success = False
                 error_message: str | None = str(error)[:2000]

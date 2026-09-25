@@ -1,0 +1,15 @@
+merge the prs https://github.com/zentered-studios/mcpsignals/pulls
+
+---
+
+<task-notification>
+<task-id>bjq2xb1lm</task-id>
+<tool-use-id>toolu_01JrfEzTEmgoG5xnm5Ro45k9</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-patrick-Sites-mcpsignals/dd92683a-4dc7-4dff-92fe-9dfdad3bc3ba/tasks/bjq2xb1lm.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait until all open PR CI checks finish running" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+Yes, fix #66 and dig into #69

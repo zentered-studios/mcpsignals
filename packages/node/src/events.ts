@@ -1,14 +1,14 @@
 /** Matches schema/events.md. Field names are snake_case to match every sink's wire format. */
 
 /** Every value `error_kind` can take. `classifyError` only produces some of them; see schema/events.md. */
-export const ERROR_KINDS = [
+export const ERROR_KINDS = Object.freeze([
   'not_found',
   'empty',
   'validation',
   'auth_required',
   'payment_required',
   'internal'
-] as const;
+] as const);
 
 export type ErrorKind = (typeof ERROR_KINDS)[number];
 

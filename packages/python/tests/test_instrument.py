@@ -163,7 +163,7 @@ async def test_explicit_error_kind_auth_required_keeps_message():
 
     async with Client(server) as client:
         result = await client.call_tool("fee", {})
-        await asyncio.sleep(0.05)
+        await handle_for(server).flush()
 
     assert result.content[0].text == "Sign in at https://example.com to use this tool."
     assert sink.events[0].success is False
@@ -184,7 +184,7 @@ async def test_explicit_error_kind_payment_required():
 
     async with Client(server) as client:
         await client.call_tool("fee", {})
-        await asyncio.sleep(0.05)
+        await handle_for(server).flush()
 
     assert sink.events[0].success is False
     assert sink.events[0].error_kind == "payment_required"
@@ -204,7 +204,7 @@ async def test_explicit_error_kind_wins_over_message_heuristic():
 
     async with Client(server) as client:
         await client.call_tool("fee", {})
-        await asyncio.sleep(0.05)
+        await handle_for(server).flush()
 
     assert sink.events[0].error_kind == "not_found"
 
@@ -223,7 +223,7 @@ async def test_unknown_explicit_error_kind_falls_back_to_heuristic():
 
     async with Client(server) as client:
         await client.call_tool("fee", {})
-        await asyncio.sleep(0.05)
+        await handle_for(server).flush()
 
     assert sink.events[0].error_kind == "not_found"
 
@@ -241,7 +241,7 @@ async def test_explicit_error_kind_on_successful_result_is_ignored():
 
     async with Client(server) as client:
         await client.call_tool("fee", {})
-        await asyncio.sleep(0.05)
+        await handle_for(server).flush()
 
     assert sink.events[0].success is True
     assert sink.events[0].error_kind is None

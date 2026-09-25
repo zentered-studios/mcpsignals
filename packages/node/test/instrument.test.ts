@@ -107,7 +107,7 @@ test('error path: a handler-returned isError:true result is recorded as a failed
 });
 
 test('explicit error_kind: an isError result can declare auth_required without rewording its message', async () => {
-  const { server, events } = createInstrumentedServer();
+  const { server, events, flush } = createInstrumentedServer();
   server.registerTool('fee', { inputSchema: z.object({}) }, async () => ({
     content: [{ type: 'text', text: 'Sign in at https://example.com to use this tool.' }],
     isError: true,
@@ -118,13 +118,13 @@ test('explicit error_kind: an isError result can declare auth_required without r
   const result = await client.callTool({ name: 'fee', arguments: {} });
   assert.equal(textOf(result), 'Sign in at https://example.com to use this tool.');
 
-  await new Promise(resolve => setTimeout(resolve, 10));
+  await flush();
   assert.equal(events[0].success, false);
   assert.equal(events[0].error_kind, 'auth_required');
 });
 
 test('explicit error_kind: an isError result can declare payment_required', async () => {
-  const { server, events } = createInstrumentedServer();
+  const { server, events, flush } = createInstrumentedServer();
   server.registerTool('fee', { inputSchema: z.object({}) }, async () => ({
     content: [{ type: 'text', text: 'Get filing fee requires an active plan.' }],
     isError: true,
@@ -134,13 +134,13 @@ test('explicit error_kind: an isError result can declare payment_required', asyn
 
   await client.callTool({ name: 'fee', arguments: {} });
 
-  await new Promise(resolve => setTimeout(resolve, 10));
+  await flush();
   assert.equal(events[0].success, false);
   assert.equal(events[0].error_kind, 'payment_required');
 });
 
 test('explicit error_kind: a declared kind wins over the message heuristic', async () => {
-  const { server, events } = createInstrumentedServer();
+  const { server, events, flush } = createInstrumentedServer();
   server.registerTool('fee', { inputSchema: z.object({}) }, async () => ({
     content: [{ type: 'text', text: 'No current fee on file for that form.' }],
     isError: true,
@@ -150,12 +150,12 @@ test('explicit error_kind: a declared kind wins over the message heuristic', asy
 
   await client.callTool({ name: 'fee', arguments: {} });
 
-  await new Promise(resolve => setTimeout(resolve, 10));
+  await flush();
   assert.equal(events[0].error_kind, 'not_found');
 });
 
 test('explicit error_kind: an unknown declared kind falls back to the message heuristic', async () => {
-  const { server, events } = createInstrumentedServer();
+  const { server, events, flush } = createInstrumentedServer();
   server.registerTool('fee', { inputSchema: z.object({}) }, async () => ({
     content: [{ type: 'text', text: 'widget not found' }],
     isError: true,
@@ -165,12 +165,12 @@ test('explicit error_kind: an unknown declared kind falls back to the message he
 
   await client.callTool({ name: 'fee', arguments: {} });
 
-  await new Promise(resolve => setTimeout(resolve, 10));
+  await flush();
   assert.equal(events[0].error_kind, 'not_found');
 });
 
 test('explicit error_kind: a declared kind on a successful result is ignored', async () => {
-  const { server, events } = createInstrumentedServer();
+  const { server, events, flush } = createInstrumentedServer();
   server.registerTool('fee', { inputSchema: z.object({}) }, async () => ({
     content: [{ type: 'text', text: 'ok' }],
     _meta: { [ERROR_KIND_META_KEY]: 'auth_required' }
@@ -179,7 +179,7 @@ test('explicit error_kind: a declared kind on a successful result is ignored', a
 
   await client.callTool({ name: 'fee', arguments: {} });
 
-  await new Promise(resolve => setTimeout(resolve, 10));
+  await flush();
   assert.equal(events[0].success, true);
   assert.equal(events[0].error_kind, null);
 });

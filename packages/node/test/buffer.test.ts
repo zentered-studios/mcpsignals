@@ -42,23 +42,6 @@ test('flushes on the size threshold without waiting for the interval', async () 
   buffer.stop();
 });
 
-test('a pushed event keeps the error_kind the caller set', async () => {
-  const written: AnyEvent[] = [];
-  const sink = { write: async (batch: AnyEvent[]) => void written.push(...batch) };
-  const buffer = new EventBuffer({ sinks: [sink], flushIntervalMs: null });
-
-  buffer.push({
-    ...makeEvent(1),
-    success: false,
-    error_kind: 'payment_required',
-    error_message: 'Get filing fee requires an active plan.'
-  });
-  await buffer.flush();
-
-  assert.equal(written[0].success, false);
-  assert.equal(written[0].error_kind, 'payment_required');
-});
-
 test('flushes on the interval even under the size threshold', async () => {
   const written: AnyEvent[] = [];
   const sink = { write: async (batch: AnyEvent[]) => void written.push(...batch) };

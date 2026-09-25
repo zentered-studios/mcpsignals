@@ -75,6 +75,37 @@
         "label": "Skill: patrick:review-fix-merge",
         "default_collapsed": true
       }
+    },
+    {
+      "id": "claude-skill-toolu_01Un5xDe7VSm8e2xCV5zCAXP",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "agent-skills:ship"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "7a1e41ec3882",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 297,
+        "end": 298,
+        "entry_ids": [
+          "be975445-e6d2-4438-8856-250e6945c6e9"
+        ],
+        "tool_use_id": "toolu_01Un5xDe7VSm8e2xCV5zCAXP"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01Un5xDe7VSm8e2xCV5zCAXP"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: agent-skills:ship",
+        "default_collapsed": true
+      }
     }
   ],
   "session_metrics": {

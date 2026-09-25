@@ -309,9 +309,14 @@ export function instrument(server: McpServer, options: InstrumentOptions): Instr
           if (result?.isError) {
             const errorMessage = extractErrorMessage(result);
             // A kind the handler declared wins; an unknown value falls back to the heuristic.
-            // `_meta` is the MCP protocol's field name.
-            // oxlint-disable-next-line no-underscore-dangle
-            const declaredKind = result._meta?.[ERROR_KIND_META_KEY];
+            // Guarded on its own so a throwing `_meta` costs only the declared kind, not the event.
+            const declaredKind = guarded(
+              'declared error kind',
+              // `_meta` is the MCP protocol's field name.
+              // oxlint-disable-next-line no-underscore-dangle
+              () => result._meta?.[ERROR_KIND_META_KEY],
+              undefined
+            );
             await push(durationMs, {
               success: false,
               error_kind: isErrorKind(declaredKind) ? declaredKind : classifyError(errorMessage),

@@ -2,6 +2,7 @@ import asyncio
 import dataclasses
 import json
 import logging
+import sys
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -816,3 +817,35 @@ async def test_unserializable_redactor_never_costs_the_rest_of_the_flush():
     assert len(written) == 2, "both events must reach the sink"
     assert written[0].arguments is None, "the unserializable one is recorded as None"
     assert written[1].arguments == {"text": "kept"}, "the healthy one is untouched"
+
+
+def test_declared_error_kind_reads_snake_case_meta():
+    from mcpsignals.instrument import _declared_error_kind
+
+    result = {"is_error": True, "meta": {ERROR_KIND_META_KEY: "auth_required"}}
+    assert _declared_error_kind(result) == "auth_required"
+
+
+@pytest.mark.asyncio
+async def test_declared_error_kind_that_raises_still_records_the_failed_call(monkeypatch):
+    def boom(result):
+        raise RuntimeError("boom")
+
+    # `mcpsignals.instrument` the attribute is the function; patch the module.
+    monkeypatch.setattr(sys.modules["mcpsignals.instrument"], "_declared_error_kind", boom)
+    server, sink = build_server()
+
+    @server.tool()
+    def fee() -> CallToolResult:
+        return CallToolResult(
+            content=[TextContent(type="text", text="widget not found")],
+            is_error=True,
+        )
+
+    async with Client(server) as client:
+        await client.call_tool("fee", {})
+        await handle_for(server).flush()
+
+    assert len(sink.events) == 1
+    assert sink.events[0].success is False
+    assert sink.events[0].error_kind == "not_found"

@@ -184,6 +184,33 @@ test('explicit error_kind: a declared kind on a successful result is ignored', a
   assert.equal(events[0].error_kind, null);
 });
 
+test('explicit error_kind: a _meta that throws on read still records the failed call', async t => {
+  t.mock.method(console, 'error', () => {});
+  const { server, events, flush } = createInstrumentedServer();
+  const throwingMeta = new Proxy(
+    {},
+    {
+      get(target, key) {
+        if (key === ERROR_KIND_META_KEY) throw new Error('boom');
+        return Reflect.get(target, key);
+      }
+    }
+  );
+  server.registerTool('fee', { inputSchema: z.object({}) }, async () => ({
+    content: [{ type: 'text', text: 'widget not found' }],
+    isError: true,
+    _meta: throwingMeta
+  }));
+  const client = await connectClient(server);
+
+  await client.callTool({ name: 'fee', arguments: {} });
+
+  await flush();
+  assert.equal(events.length, 1);
+  assert.equal(events[0].success, false);
+  assert.equal(events[0].error_kind, 'not_found');
+});
+
 test('transparency: the real handler receives exactly the arguments it would have without the library', async () => {
   const { server } = createInstrumentedServer();
   let receivedArgs: unknown;

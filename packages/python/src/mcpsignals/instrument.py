@@ -80,7 +80,11 @@ def _result_content(result: Any) -> Any:
 
 def _declared_error_kind(result: Any) -> ErrorKind | None:
     """The `error_kind` a handler set in the result's `_meta`, if it is a known value."""
-    meta = result.get("_meta") if isinstance(result, Mapping) else getattr(result, "meta", None)
+    # Same two shapes as `_is_error_result`: wire-shaped (`_meta`) or snake_case (`meta`).
+    if isinstance(result, Mapping):
+        meta = result.get("_meta", result.get("meta"))
+    else:
+        meta = getattr(result, "meta", None)
     kind = meta.get(ERROR_KIND_META_KEY) if isinstance(meta, Mapping) else None
     return kind if is_error_kind(kind) else None
 
@@ -260,8 +264,13 @@ def instrument(
                 if error_message:
                     error_message = error_message[:2000]
                 # A kind the handler declared wins; an unknown value falls back to the heuristic.
+                # Guarded on its own so a throwing `_meta` costs only the
+                # declared kind, not the event.
                 if not success:
-                    declared_kind = _declared_error_kind(result)
+                    try:
+                        declared_kind = _declared_error_kind(result)
+                    except Exception as exc:
+                        _warn_once("declared error kind", exc)
                 response_bytes = len(_serialize_for_bytes(result))
 
             # Guarded on its own so a broken redactor still leaves an event

@@ -824,6 +824,19 @@ def test_declared_error_kind_reads_snake_case_meta():
 
     result = {"is_error": True, "meta": {ERROR_KIND_META_KEY: "auth_required"}}
     assert _declared_error_kind(result) == "auth_required"
+    result = {"is_error": True, "_meta": None, "meta": {ERROR_KIND_META_KEY: "auth_required"}}
+    assert _declared_error_kind(result) == "auth_required"
+
+
+def test_declared_error_kind_prefers_wire_meta_over_snake_case():
+    from mcpsignals.instrument import _declared_error_kind
+
+    result = {
+        "isError": True,
+        "_meta": {ERROR_KIND_META_KEY: "payment_required"},
+        "meta": {ERROR_KIND_META_KEY: "auth_required"},
+    }
+    assert _declared_error_kind(result) == "payment_required"
 
 
 @pytest.mark.asyncio

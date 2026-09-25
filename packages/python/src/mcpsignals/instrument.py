@@ -82,7 +82,9 @@ def _declared_error_kind(result: Any) -> ErrorKind | None:
     """The `error_kind` a handler set in the result's `_meta`, if it is a known value."""
     # Same two shapes as `_is_error_result`: wire-shaped (`_meta`) or snake_case (`meta`).
     if isinstance(result, Mapping):
-        meta = result.get("_meta", result.get("meta"))
+        meta = result.get("_meta")
+        if meta is None:
+            meta = result.get("meta")
     else:
         meta = getattr(result, "meta", None)
     kind = meta.get(ERROR_KIND_META_KEY) if isinstance(meta, Mapping) else None

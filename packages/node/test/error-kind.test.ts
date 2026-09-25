@@ -1,6 +1,17 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { classifyError } from 'mcpsignals';
+import { classifyError, ERROR_KINDS } from 'mcpsignals';
+
+test('ERROR_KINDS lists every value error_kind can take', () => {
+  assert.deepEqual(ERROR_KINDS, [
+    'not_found',
+    'empty',
+    'validation',
+    'auth_required',
+    'payment_required',
+    'internal'
+  ]);
+});
 
 test('error_kind: null when there is no message', () => {
   assert.equal(classifyError(undefined), null);

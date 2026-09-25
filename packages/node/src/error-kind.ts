@@ -1,4 +1,8 @@
-import type { ErrorKind } from './events.js';
+import { ERROR_KINDS, type ErrorKind } from './events.js';
+
+export function isErrorKind(value: unknown): value is ErrorKind {
+  return typeof value === 'string' && (ERROR_KINDS as readonly string[]).includes(value);
+}
 
 /**
  * Best-effort heuristic over free-text error messages. Not a structured

@@ -41,7 +41,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from mcpsignals.buffer import EventBuffer
-from mcpsignals.error_kind import classify_error
+from mcpsignals.error_kind import ERROR_KIND_META_KEY, ERROR_KINDS, classify_error
 from mcpsignals.events import ToolCallEvent
 from mcpsignals.handle import InstrumentHandle
 from mcpsignals.handle import register as _register_handle
@@ -76,6 +76,13 @@ def _result_content(result: Any) -> Any:
     if isinstance(result, Mapping):
         return result.get("content")
     return getattr(result, "content", None)
+
+
+def _declared_error_kind(result: Any) -> str | None:
+    """The `error_kind` a handler set in the result's `_meta`, if it is a known value."""
+    meta = result.get("_meta") if isinstance(result, Mapping) else getattr(result, "meta", None)
+    kind = meta.get(ERROR_KIND_META_KEY) if isinstance(meta, Mapping) else None
+    return kind if kind in ERROR_KINDS else None
 
 
 def _content_to_text(content: Any) -> str | None:
@@ -242,6 +249,7 @@ def instrument(
                     _warn_once("resolve_identity", exc)
                     user_id, org_id = None, None
 
+            declared_kind: str | None = None
             if error is not None:
                 success = False
                 error_message: str | None = str(error)[:2000]
@@ -251,6 +259,9 @@ def instrument(
                 error_message = None if success else _content_to_text(_result_content(result))
                 if error_message:
                     error_message = error_message[:2000]
+                # A kind the handler declared wins; an unknown value falls back to the heuristic.
+                if not success:
+                    declared_kind = _declared_error_kind(result)
                 response_bytes = len(_serialize_for_bytes(result))
 
             # Guarded on its own so a broken redactor still leaves an event
@@ -291,7 +302,7 @@ def instrument(
                 org_id=org_id,
                 duration_ms=duration_ms,
                 success=success,
-                error_kind=classify_error(error_message),
+                error_kind=declared_kind or classify_error(error_message),
                 error_message=error_message,
                 request_bytes=request_bytes,
                 response_bytes=response_bytes,

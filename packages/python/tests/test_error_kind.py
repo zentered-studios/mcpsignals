@@ -1,4 +1,16 @@
+from mcpsignals import ERROR_KINDS
 from mcpsignals.error_kind import classify_error
+
+
+def test_error_kinds_lists_every_value():
+    assert ERROR_KINDS == (
+        "not_found",
+        "empty",
+        "validation",
+        "auth_required",
+        "payment_required",
+        "internal",
+    )
 
 
 def test_none_message_returns_none():

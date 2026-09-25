@@ -37,7 +37,7 @@ One row per tool invocation.
 | `org_id` | string | yes | Same as `user_id`: host-supplied only. |
 | `duration_ms` | integer | no | Wall time from call start to response, including any handler-internal await. |
 | `success` | boolean | no | Ground truth. Derived directly from the tool result's `isError` flag, nothing else. |
-| `error_kind` | enum | yes | One of `not_found`, `empty`, `validation`, `internal`. See "error_kind is a heuristic" below. Null when `success` is true. |
+| `error_kind` | enum | yes | One of `not_found`, `empty`, `validation`, `auth_required`, `payment_required`, `internal`. Declared by the server or guessed from `error_message`; see "`error_kind` is declared by the server or guessed from the message" below. Null when `success` is true. |
 | `error_message` | string | yes | Truncated to 2000 chars. Null when `success` is true. |
 | `request_bytes` | integer | no | `byteLength` of the serialized tool arguments as sent to the handler, before injected intent-capture parameters are stripped. |
 | `response_bytes` | integer | no | `byteLength` of the serialized tool result. |
@@ -45,28 +45,56 @@ One row per tool invocation.
 | `intent` | string | yes | The calling agent's stated reason for the call. Only present when intent capture is enabled for this tool. Truncated to 2000 chars. |
 | `transport` | string | yes | `stdio` or `http`. Both packages default to `stdio` when there is no HTTP request context, so neither emits null today; the column stays nullable for future transports. |
 
-### `error_kind` is a heuristic, not a structured code
+### `error_kind` is declared by the server or guessed from the message
 
-`error_kind` is produced by pattern-matching the free-text `error_message`
-into one of four buckets. It exists so dashboards and ad hoc queries have
-something coarse to filter or group by. It is **not** ground truth and it is
-**not** a replacement for `success`.
+`error_kind` is a coarse bucket for dashboards and ad hoc queries. It is
+**not** a replacement for `success`. A call with any `error_kind` is still a
+failed call: `success` stays false.
+
+The values:
+
+- `not_found` - the requested resource does not exist.
+- `empty` - the tool ran, but the result was empty in a way the handler
+  treats as a failure.
+- `validation` - the arguments failed validation.
+- `auth_required` - the caller must sign in to use the tool.
+- `payment_required` - the caller is signed in but needs a paid plan.
+- `internal` - a real fault, or anything the heuristic cannot place.
+
+#### Declared kinds
+
+A server that already knows why a call failed records it directly:
+
+- `instrument()` tool results: set `_meta["mcpsignals/error_kind"]` on the
+  `isError` result, e.g. `"auth_required"`. Both packages export the key as
+  `ERROR_KIND_META_KEY`. The key is ignored on a successful result. An
+  unknown value falls back to the heuristic below. The client receives the
+  result unchanged, `_meta` included.
+- Events pushed to `EventBuffer` directly: set `error_kind` on the event.
+
+Both packages export the valid values as `ERROR_KINDS`.
+
+#### The heuristic
+
+Without a declared kind, `error_kind` comes from pattern-matching the
+free-text `error_message` (`classifyError` / `classify_error`). The
+heuristic never produces `auth_required` or `payment_required`. Checks run
+in this order:
+
+1. `not_found` - the message matches a "no such resource" pattern.
+2. `empty` - the message matches an "empty / no results" pattern.
+3. `validation` - the message matches an argument/schema validation pattern.
+4. `internal` - everything else. This is the default bucket, not a specific
+   signal.
 
 Known false-positive mode: a genuine internal failure whose message happens
 to contain the words "not found" (e.g. `"config key 'timeout' not found in
 environment"`) will bucket as `not_found` even though nothing the user asked
-for was missing. Always treat `success` as the authoritative pass/fail
-signal and `error_kind` as a rough filter on top of it, never the reverse.
-
-The four buckets, in the order they are checked:
-
-1. `not_found` - the message matches a "no such resource" pattern.
-2. `empty` - the tool ran successfully in the sense of not throwing, but
-   `isError` was still set because the result was empty/zero-length in a way
-   the handler considered a failure.
-3. `validation` - the message matches an argument/schema validation pattern.
-4. `internal` - everything else. This is the default bucket, not a specific
-   signal.
+for was missing. Known false-negative mode: an expected denial whose message
+matches no pattern (e.g. `"Sign in to use this tool."`) buckets as
+`internal`. Declare the kind to avoid both. Always treat `success` as the
+authoritative pass/fail signal and `error_kind` as a filter on top of it,
+never the reverse.
 
 ## Field naming conventions
 

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { z } from 'zod';
 import { McpServer, InMemoryTransport, createMcpHandler } from '@modelcontextprotocol/server';
 import { Client } from '@modelcontextprotocol/client';
-import { instrument, type AnyEvent, type InstrumentOptions } from 'mcpsignals';
+import { ERROR_KIND_META_KEY, instrument, type AnyEvent, type InstrumentOptions } from 'mcpsignals';
 import { createInstrumentedServer, connectClient, textOf } from './helpers.js';
 
 test('success path: records a tool_call event with the right shape', async () => {
@@ -104,6 +104,84 @@ test('error path: a handler-returned isError:true result is recorded as a failed
   await new Promise(resolve => setTimeout(resolve, 10));
   assert.equal(events[0].success, false);
   assert.equal(events[0].error_kind, 'validation');
+});
+
+test('explicit error_kind: an isError result can declare auth_required without rewording its message', async () => {
+  const { server, events } = createInstrumentedServer();
+  server.registerTool('fee', { inputSchema: z.object({}) }, async () => ({
+    content: [{ type: 'text', text: 'Sign in at https://example.com to use this tool.' }],
+    isError: true,
+    _meta: { [ERROR_KIND_META_KEY]: 'auth_required' }
+  }));
+  const client = await connectClient(server);
+
+  const result = await client.callTool({ name: 'fee', arguments: {} });
+  assert.equal(textOf(result), 'Sign in at https://example.com to use this tool.');
+
+  await new Promise(resolve => setTimeout(resolve, 10));
+  assert.equal(events[0].success, false);
+  assert.equal(events[0].error_kind, 'auth_required');
+});
+
+test('explicit error_kind: an isError result can declare payment_required', async () => {
+  const { server, events } = createInstrumentedServer();
+  server.registerTool('fee', { inputSchema: z.object({}) }, async () => ({
+    content: [{ type: 'text', text: 'Get filing fee requires an active plan.' }],
+    isError: true,
+    _meta: { [ERROR_KIND_META_KEY]: 'payment_required' }
+  }));
+  const client = await connectClient(server);
+
+  await client.callTool({ name: 'fee', arguments: {} });
+
+  await new Promise(resolve => setTimeout(resolve, 10));
+  assert.equal(events[0].success, false);
+  assert.equal(events[0].error_kind, 'payment_required');
+});
+
+test('explicit error_kind: a declared kind wins over the message heuristic', async () => {
+  const { server, events } = createInstrumentedServer();
+  server.registerTool('fee', { inputSchema: z.object({}) }, async () => ({
+    content: [{ type: 'text', text: 'No current fee on file for that form.' }],
+    isError: true,
+    _meta: { [ERROR_KIND_META_KEY]: 'not_found' }
+  }));
+  const client = await connectClient(server);
+
+  await client.callTool({ name: 'fee', arguments: {} });
+
+  await new Promise(resolve => setTimeout(resolve, 10));
+  assert.equal(events[0].error_kind, 'not_found');
+});
+
+test('explicit error_kind: an unknown declared kind falls back to the message heuristic', async () => {
+  const { server, events } = createInstrumentedServer();
+  server.registerTool('fee', { inputSchema: z.object({}) }, async () => ({
+    content: [{ type: 'text', text: 'widget not found' }],
+    isError: true,
+    _meta: { [ERROR_KIND_META_KEY]: 'teapot' }
+  }));
+  const client = await connectClient(server);
+
+  await client.callTool({ name: 'fee', arguments: {} });
+
+  await new Promise(resolve => setTimeout(resolve, 10));
+  assert.equal(events[0].error_kind, 'not_found');
+});
+
+test('explicit error_kind: a declared kind on a successful result is ignored', async () => {
+  const { server, events } = createInstrumentedServer();
+  server.registerTool('fee', { inputSchema: z.object({}) }, async () => ({
+    content: [{ type: 'text', text: 'ok' }],
+    _meta: { [ERROR_KIND_META_KEY]: 'auth_required' }
+  }));
+  const client = await connectClient(server);
+
+  await client.callTool({ name: 'fee', arguments: {} });
+
+  await new Promise(resolve => setTimeout(resolve, 10));
+  assert.equal(events[0].success, true);
+  assert.equal(events[0].error_kind, null);
 });
 
 test('transparency: the real handler receives exactly the arguments it would have without the library', async () => {

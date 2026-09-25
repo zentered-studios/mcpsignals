@@ -5,6 +5,21 @@ the documented false-positive mode.
 
 import re
 
+#: Every value `error_kind` can take. `classify_error` only produces some of
+#: them; see schema/events.md.
+ERROR_KINDS = (
+    "not_found",
+    "empty",
+    "validation",
+    "auth_required",
+    "payment_required",
+    "internal",
+)
+
+#: `_meta` key a tool handler sets on an `isError` result to record the
+#: `error_kind` it already knows, instead of relying on `classify_error`.
+ERROR_KIND_META_KEY = "mcpsignals/error_kind"
+
 _NOT_FOUND = re.compile(r"not found|does not exist|no such", re.IGNORECASE)
 _EMPTY = re.compile(r"\bempty\b|no results?|nothing found|zero results", re.IGNORECASE)
 _VALIDATION = re.compile(r"invalid|required|expected|must be|validation|schema", re.IGNORECASE)

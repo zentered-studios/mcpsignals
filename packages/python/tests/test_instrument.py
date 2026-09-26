@@ -816,6 +816,59 @@ async def test_transport_session_id_wins_over_the_intent_capture_value():
     assert event.intent == "testing"
 
 
+# Protocol revision 2026-07-28 has no `initialize` handshake and no session:
+# each request carries the client's identity in its own `_meta` envelope.
+
+
+@pytest.mark.asyncio
+async def test_2026_07_28_client_identity_comes_from_the_request_envelope():
+    server, sink = build_server()
+
+    @server.tool()
+    def add_note(text: str) -> str:
+        return f"Saved: {text}"
+
+    app = Starlette(routes=[Mount("/", app=server.streamable_http_app(stateless_http=True))])
+    body = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "add_note",
+            "arguments": {"text": "hi"},
+            "_meta": {
+                "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                "io.modelcontextprotocol/clientCapabilities": {},
+                "io.modelcontextprotocol/clientInfo": {"name": "modern-client", "version": "3.1.4"},
+            },
+        },
+    }
+    async with server.session_manager.run():
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://127.0.0.1:8001"
+        ) as client:
+            response = await client.post(
+                "/mcp",
+                headers={
+                    "Content-Type": "application/json",
+                    "Accept": "application/json, text/event-stream",
+                    "MCP-Protocol-Version": "2026-07-28",
+                    "Mcp-Method": "tools/call",
+                    "Mcp-Name": "add_note",
+                },
+                content=json.dumps(body),
+            )
+        await asyncio.sleep(0.05)
+
+    assert response.status_code == 200, response.text
+    event = sink.events[0]
+    assert event.success is True
+    assert event.client_name == "modern-client"
+    assert event.client_version == "3.1.4"
+    assert event.session_id is None
+    assert event.transport == "http"
+
+
 # A redactor is a full override: whatever it returns is recorded verbatim, and
 # nothing stops it returning a value `json` cannot encode. Every sink
 # re-serializes `arguments` on its way out (`json.dumps` in postgres and

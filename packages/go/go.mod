@@ -1,4 +1,4 @@
-module github.com/zentered-studios/mcpsignals/packages/go
+module github.com/zentered-studios/mcpsignals/packages/go/v2
 
 go 1.25.0
 

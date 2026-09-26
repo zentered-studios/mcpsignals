@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	mcpsignals "github.com/zentered-studios/mcpsignals/packages/go"
+	mcpsignals "github.com/zentered-studios/mcpsignals/packages/go/v2"
 )
 
 type input struct {

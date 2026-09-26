@@ -1,0 +1,161 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "01M3FGKVVYQ118DJJ67SCEMXT6",
+  "session_id": "f567b086-46b4-4dac-909a-b1e23239bda9",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-26T18:46:06.189692Z",
+  "branch": "worktree-mcp-spec-alignment",
+  "checkpoints_count": 3,
+  "save_step_count": 3,
+  "files_touched": [],
+  "agent": "Claude Code",
+  "model": "claude-opus-5-5",
+  "turn_id": "2872a6d94187",
+  "checkpoint_transcript_start": 940,
+  "transcript_lines_at_start": 940,
+  "compact_transcript_start": 135,
+  "token_usage": {
+    "input_tokens": 16,
+    "cache_creation_tokens": 8783,
+    "cache_read_tokens": 1130224,
+    "output_tokens": 2294,
+    "api_call_count": 5,
+    "subagent_tokens": {
+      "input_tokens": 74,
+      "cache_creation_tokens": 54826,
+      "cache_read_tokens": 5309338,
+      "output_tokens": 515,
+      "api_call_count": 37
+    }
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "prompt-skill-claude-code-review-2026-09-26T17:54:21.085631Z",
+      "event_type": "prompt_invocation",
+      "skill": {
+        "name": "review"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "prompt_slash_command",
+        "confidence": "explicit"
+      },
+      "turn_id": "8ecb4996f989",
+      "timestamp": "2026-09-26T17:54:21.085631Z",
+      "native": {
+        "command": "/review"
+      },
+      "collapse": {
+        "target": "user_message",
+        "label": "/review",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_01GpGZwt7Lm8KzDCTybE2Gy8",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "patrick:review-fix-merge"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "27ed77d10c4a",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 56,
+        "end": 57,
+        "entry_ids": [
+          "f11f40ed-6501-4fbe-b8f5-842326ba2f33"
+        ],
+        "tool_use_id": "toolu_01GpGZwt7Lm8KzDCTybE2Gy8"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01GpGZwt7Lm8KzDCTybE2Gy8"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: patrick:review-fix-merge",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_01AKEpdCuTrWLJjQTYTcAR7P",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "agent-skills:ship"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "27ed77d10c4a",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 759,
+        "end": 760,
+        "entry_ids": [
+          "0dd703bf-7557-4b28-933c-ab585cf6f4b5"
+        ],
+        "tool_use_id": "toolu_01AKEpdCuTrWLJjQTYTcAR7P"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01AKEpdCuTrWLJjQTYTcAR7P"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: agent-skills:ship",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 5
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 36,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "packages/node/test/zz-scratch-double-instrument.test.ts": 36
+      }
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 4,
+      "user_lines_added": 36,
+      "user_lines_removed": 3,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "packages/node/test/tools-call.test.ts": 7,
+        "packages/python/tests/test_fields.py": 29
+      },
+      "user_removed_per_file": {
+        "packages/node/test/tools-call.test.ts": 3
+      }
+    }
+  ]
+}

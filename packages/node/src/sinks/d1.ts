@@ -31,6 +31,11 @@ const MAX_ARGUMENTS_BYTES = 1_000_000;
 
 const encoder = new TextEncoder();
 
+/** SQLite has no boolean type: 1, 0, or null for "not declared". */
+function sqliteBoolean(value: boolean | null): number | null {
+  return value === null ? null : value ? 1 : 0;
+}
+
 /**
  * Writes rows into the table defined by schema/events.md's D1 DDL, via a
  * `D1Database` binding (Cloudflare Workers Worker Bindings API). Requires
@@ -57,11 +62,6 @@ const encoder = new TextEncoder();
  * `write()` checks the returned results either way, so a failure can't be
  * mistaken for a successful flush.
  */
-/** SQLite has no boolean type: 1, 0, or null for "not declared". */
-function sqliteBoolean(value: boolean | null): number | null {
-  return value === null ? null : value ? 1 : 0;
-}
-
 export function d1Sink(db: D1Database, options: D1SinkOptions = {}): Sink {
   const toolCallTable = options.toolCallTable ?? 'mcpsignals_tool_call';
 

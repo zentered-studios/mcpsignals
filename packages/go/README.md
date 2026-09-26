@@ -118,7 +118,8 @@ if err := telemetry.Close(ctx); err != nil {
 ## Privacy
 
 `CaptureArguments` defaults to false, producing `arguments: null`. When enabled,
-only top-level keys and JSON type markers are captured by default:
+a call without arguments records `{}`, as in Node/Python, and only top-level
+keys and JSON type markers are captured by default:
 
 ```go
 CaptureArguments: true,

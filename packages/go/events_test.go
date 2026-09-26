@@ -82,9 +82,14 @@ func TestRedaction(t *testing.T) {
 	if !reflect.DeepEqual(raw, json.RawMessage(`{"s":"secret","n":9007199254740993,"b":true,"o":{"secret":"value"},"a":[1],"z":null}`)) {
 		t.Fatal("mutated input")
 	}
-	for _, bad := range []string{`[]`, `null`, `{`} {
+	for _, bad := range []string{`[]`, `{`, `{} x`} {
 		if captureArguments(json.RawMessage(bad), true, Redaction{}) != nil {
 			t.Fatal(bad)
+		}
+	}
+	for _, empty := range []string{``, `null`} {
+		if got := captureArguments(json.RawMessage(empty), true, Redaction{}); string(got) != `{}` {
+			t.Fatalf("%q: %s", empty, got)
 		}
 	}
 }

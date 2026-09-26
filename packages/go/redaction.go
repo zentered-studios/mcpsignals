@@ -25,6 +25,10 @@ func captureArguments(raw json.RawMessage, enabled bool, config Redaction) (out 
 			out = nil
 		}
 	}()
+	// Omitted or null arguments are an empty object, as in Node/Python.
+	if len(raw) == 0 || string(raw) == "null" {
+		raw = json.RawMessage(`{}`)
+	}
 	var args map[string]any
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.UseNumber()

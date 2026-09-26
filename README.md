@@ -69,7 +69,8 @@ Use the official Go SDK with `mcpsignals.Instrument(server, options)`; no tool
 handler changes are needed. See the [installation and usage guide](packages/go/README.md)
 and [runnable stdio example](packages/go/examples/stdio/main.go). The Go module
 currently includes console/custom sinks; warehouse sinks and intent capture are
-deferred. The first Go release has not yet been published.
+deferred. Install it with
+`go get github.com/zentered-studios/mcpsignals/packages/go/v2`.
 
 Every tool call now writes a row - timestamp, tool name, duration,
 success/failure, byte sizes - to wherever `sinks` points. See
@@ -80,7 +81,7 @@ OpenTelemetry collector instead.
 
 |  | Node.js | Python | Go |
 |---|---|---|---|
-| Install | `npm install mcpsignals` | `pip install mcpsignals` | [Go installation](packages/go/README.md#install) (not yet released) |
+| Install | `npm install mcpsignals` | `pip install mcpsignals` | `go get github.com/zentered-studios/mcpsignals/packages/go/v2` |
 | Runtime | Node.js 20+ | Python 3.10+ | Go 1.25.0+ |
 | MCP SDK | `@modelcontextprotocol/server` v2 (peer dep, with `zod` v4) | `mcp` v2 | Official `go-sdk/mcp` v1.8.0 |
 | Instruments | `McpServer` | `MCPServer` and the low-level `Server` | `*mcp.Server` receiving middleware |

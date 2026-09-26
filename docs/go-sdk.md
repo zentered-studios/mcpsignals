@@ -2,7 +2,7 @@
 
 Implements [issue #84](https://github.com/zentered-studios/mcpsignals/issues/84).
 The Go module lives at `packages/go`; package name `mcpsignals`, module path
-`github.com/zentered-studios/mcpsignals/packages/go`.
+`github.com/zentered-studios/mcpsignals/packages/go/v2`.
 
 ## Sources verified before implementation
 
@@ -76,50 +76,31 @@ No placeholders claim these deferred features are implemented.
 
 ## Publishing
 
-**Nothing in this change publishes the module.** The proposed first Go version
-is **v0.1.0**, independent of Node/Python's version. Root `vX.Y.Z` tags do not
-version this subdirectory module. Use the `go` commit scope for Go-only changes:
-`.releaserc.json` gives scope `go` no root release, so `feat(go)` or `fix(go)`
-never publishes npm/PyPI packages that did not change.
+The Go module shares the root version number with the Node and Python packages.
+Go has no registry: a `packages/go/vX.Y.Z` Git tag publishes the module, and
+`proxy.golang.org` fetches it on first request. No token or registry account is
+needed. The repository must stay publicly readable.
 
-What is needed from the maintainer:
+The release job in `.github/workflows/release.yml` pushes `packages/go/vX.Y.Z`
+at the same commit as each root `vX.Y.Z` tag. Go-scoped commits (`feat(go)`,
+`fix(go)`, `perf(go)`) cut a root release like any other scope, so a Go-only fix
+also bumps the npm and PyPI versions.
 
-1. Review/merge the Go PR with green CI.
-2. Approve the module path above and initial version (`v0.1.0` proposed).
-3. Authorize publishing and ensure the publishing identity may create/push the
-   `packages/go/v*` tag (including any GitHub tag-ruleset requirements).
+Go puts major versions 2 and up in the import path. The module path ends in
+`/v2`, and the release job fails before tagging if the release major does not
+match that suffix. A major release (v3) therefore needs the `go.mod` module
+path, the example import and the docs changed to `/v3` in the same release.
 
-No npm token, PyPI token, Go registry account, new repository, or cloud credentials
-are needed. The repository must remain publicly readable. The module includes its
-MIT license so package documentation can display it.
+Never move or replace a published tag: Go's checksum database makes releases
+immutable. The first Go tag, `packages/go/v2.3.2`, was pushed by hand after the
+module was added; it has no matching Node/Python code at v2.3.2.
 
-Once approved, from a clean release worktree at the reviewed merge commit:
-
-```sh
-cd packages/go
-go mod tidy -diff
-go vet ./...
-go test -race ./...
-go build ./...
-cd ../..
-git tag -a packages/go/v0.1.0 -m "Release mcpsignals Go v0.1.0"
-git push origin packages/go/v0.1.0
-GOPROXY=https://proxy.golang.org go list -m github.com/zentered-studios/mcpsignals/packages/go@v0.1.0
-```
-
-Verify installation from a fresh external module (no `replace` directive):
+Verify a release from a fresh external module (no `replace` directive):
 
 ```sh
-mkdir /tmp/mcpsignals-go-release-check
-cd /tmp/mcpsignals-go-release-check
+GOPROXY=https://proxy.golang.org go list -m github.com/zentered-studios/mcpsignals/packages/go/v2@vX.Y.Z
+mkdir /tmp/mcpsignals-go-release-check && cd /tmp/mcpsignals-go-release-check
 go mod init example.com/release-check
-go get github.com/zentered-studios/mcpsignals/packages/go@v0.1.0
-go doc github.com/zentered-studios/mcpsignals/packages/go
+go get github.com/zentered-studios/mcpsignals/packages/go/v2@vX.Y.Z
+go doc github.com/zentered-studios/mcpsignals/packages/go/v2
 ```
-
-Check the versioned page at
-[pkg.go.dev](https://pkg.go.dev/github.com/zentered-studios/mcpsignals/packages/go)
-after indexing, then remove the unpublished notice from the package README. Never
-move or replace a published tag: Go's checksum database makes releases immutable.
-Future release automation can create these prefixed tags separately from the
-current root-tag semantic-release workflow; it is not required for first publish.

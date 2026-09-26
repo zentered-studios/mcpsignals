@@ -80,6 +80,32 @@ jobs:
             echo "No release this run - nothing to publish."
           fi
 
+      # Go has no registry: a packages/go/vX.Y.Z tag publishes the module, and
+      # proxy.golang.org fetches it on first request. The tag shares the root
+      # version and commit. Go puts major versions 2+ in the module path, so a
+      # release whose major does not match go.mod's /vN suffix stops here,
+      # before the tag exists: a published Go tag can never be moved.
+      - name: Tag the Go module
+        if: steps.artifacts.outputs.released == 'true'
+        run: |
+          set -euo pipefail
+          root_tag=$(git tag --points-at HEAD --list 'v*')
+          if ! [[ "$root_tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Expected exactly one vX.Y.Z tag on HEAD, found: ${root_tag:-none}" >&2
+            exit 1
+          fi
+          major=${root_tag#v}; major=${major%%.*}
+          module=$(sed -n 's/^module //p' packages/go/go.mod)
+          expected=github.com/zentered-studios/mcpsignals/packages/go
+          if [ "$major" -ge 2 ]; then expected="$expected/v$major"; fi
+          if [ "$module" != "$expected" ]; then
+            echo "Release $root_tag needs module path $expected in packages/go/go.mod, found $module" >&2
+            exit 1
+          fi
+          # Lightweight, like semantic-release's own tag: the runner has no git identity.
+          git tag "packages/go/$root_tag"
+          git push origin "packages/go/$root_tag"
+
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: steps.artifacts.outputs.released == 'true'
         with:

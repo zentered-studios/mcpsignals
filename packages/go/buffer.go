@@ -188,6 +188,13 @@ func (b *EventBuffer) run() {
 			return
 		default:
 		}
+		// An idle tick needs no timeout context or flush lock.
+		b.mu.Lock()
+		idle := len(b.queue) == 0
+		b.mu.Unlock()
+		if idle {
+			continue
+		}
 		ctx, cancel := context.WithTimeout(context.Background(), b.options.WriteTimeout)
 		_ = b.Flush(ctx)
 		cancel()

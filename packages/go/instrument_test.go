@@ -100,7 +100,8 @@ func TestSDKToolCalls(t *testing.T) {
 				t.Fatal(err)
 			}
 			events := sink.snapshot()
-			if len(events) != 6 {
+			// The unknown tool "missing" is rejected by the SDK and not recorded.
+			if len(events) != 5 {
 				t.Fatalf("events: %d", len(events))
 			}
 			e := events[0]
@@ -113,11 +114,8 @@ func TestSDKToolCalls(t *testing.T) {
 			if events[2].Success || events[2].ResponseBytes != 0 || *events[2].ErrorKind != Internal {
 				t.Fatal(events[2])
 			}
-			if events[3].Success || events[3].ResponseBytes != 0 {
-				t.Fatal(events[3])
-			}
-			if *events[4].ErrorKind != NotFound || *events[5].ErrorKind != Internal {
-				t.Fatalf("typed: %s %q; validation: %s %q", *events[4].ErrorKind, *events[4].ErrorMessage, *events[5].ErrorKind, *events[5].ErrorMessage)
+			if *events[3].ErrorKind != NotFound || *events[4].ErrorKind != Internal {
+				t.Fatalf("typed: %s %q; validation: %s %q", *events[3].ErrorKind, *events[3].ErrorMessage, *events[4].ErrorKind, *events[4].ErrorMessage)
 			}
 		})
 	}

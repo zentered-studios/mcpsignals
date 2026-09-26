@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/auth"
+	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -104,6 +105,11 @@ func (h *Handle) middleware(next mcp.MethodHandler) mcp.MethodHandler {
 			// and retries, and that continuation is recorded.
 			return result, err
 		}
+		if isUnknownTool(err) {
+			// Node/Python record registered tools only; a probe with arbitrary
+			// names must not create rows with client-chosen tool names.
+			return result, err
+		}
 		// Identity and redaction run after the handler, as in Node/Python, so a
 		// slow resolver neither delays the handler nor shifts ts.
 		event := h.prepare(ctx, call, name, args)
@@ -197,6 +203,13 @@ func setOutcome(e *ToolCallEvent, result mcp.Result, callErr error) {
 			e.ErrorKind = &kind
 		}
 	}
+}
+
+// isUnknownTool matches the SDK's rejection of a tools/call for a name that
+// is not registered (go-sdk v1.8.0 server.go callTool).
+func isUnknownTool(err error) bool {
+	var wire *jsonrpc.Error
+	return errors.As(err, &wire) && wire.Code == jsonrpc.CodeInvalidParams && strings.HasPrefix(wire.Message, "unknown tool ")
 }
 
 // durationMS rounds to the nearest millisecond, like Node's Math.round, so

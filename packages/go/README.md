@@ -160,6 +160,8 @@ See [`schema/events.md`](../../schema/events.md) and the
 
 - One `tool_call` event per incoming `tools/call` that reaches the middleware.
   Requests rejected by the SDK before middleware execution cannot be observed.
+  Calls to unregistered tool names (the SDK's `unknown tool` error) are not
+  recorded, matching Node/Python.
   A multi-round-trip call records one event, for the leg that completes. An
   `input_required` leg is not recorded, so `duration_ms` covers the final leg.
 - `ts` is UTC at handler-chain entry; `duration_ms` measures that chain using

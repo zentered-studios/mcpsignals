@@ -328,6 +328,20 @@ func TestSlowResolverDoesNotDelayHandlerOrTimestamp(t *testing.T) {
 	}
 }
 
+func TestSerializedSizeMatchesMarshal(t *testing.T) {
+	r := &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "<b>界</b> & more"}}, StructuredContent: map[string]any{"n": 1}}
+	want, err := json.Marshal(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := serializedSize(r); got != len(want) {
+		t.Fatalf("got %d, want %d", got, len(want))
+	}
+	if serializedSize(make(chan int)) != 0 {
+		t.Fatal("unserializable value counted")
+	}
+}
+
 func TestDurationRoundsToNearestMillisecond(t *testing.T) {
 	for d, want := range map[time.Duration]int64{400 * time.Microsecond: 0, 900 * time.Microsecond: 1, 1500 * time.Microsecond: 2, 2499 * time.Microsecond: 2} {
 		if got := durationMS(d); got != want {

@@ -216,11 +216,16 @@ func isUnknownTool(err error) bool {
 // rows from every package agree for sub-millisecond calls.
 func durationMS(d time.Duration) int64 { return d.Round(time.Millisecond).Milliseconds() }
 
+type byteCounter int
+
+func (c *byteCounter) Write(p []byte) (int, error) { *c += byteCounter(len(p)); return len(p), nil }
+
+// serializedSize is len(json.Marshal(v)) without keeping a copy of the output.
 func serializedSize(v any) (size int) {
 	defer func() { _ = recover() }()
-	data, err := json.Marshal(v)
-	if err == nil {
-		return len(data)
+	var n byteCounter
+	if json.NewEncoder(&n).Encode(v) != nil {
+		return 0
 	}
-	return 0
+	return int(n) - 1 // Encode appends a newline.
 }

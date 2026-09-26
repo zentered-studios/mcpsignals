@@ -154,6 +154,21 @@ func TestBufferPushAfterCloseIsCounted(t *testing.T) {
 	}
 }
 
+func TestZeroEventBufferFailsInsteadOfHanging(t *testing.T) {
+	var b EventBuffer
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if b.Push(ToolCallEvent{}) || b.Stats().Dropped != 1 {
+		t.Fatal(b.Stats())
+	}
+	if err := b.Flush(ctx); !errors.Is(err, errUninitialized) {
+		t.Fatal(err)
+	}
+	if err := b.Close(ctx); !errors.Is(err, errUninitialized) {
+		t.Fatal(err)
+	}
+}
+
 func TestBufferCanceledFlushPreservesQueue(t *testing.T) {
 	s := new(memorySink)
 	b := newBuffer(t, BufferOptions{Manual: true, Sinks: []Sink{s}})

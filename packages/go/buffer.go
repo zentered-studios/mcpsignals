@@ -27,6 +27,8 @@ type BufferStats struct {
 // EventBuffer is a bounded, concurrency-safe queue. Push never calls a sink.
 // Flush and Close return sink errors; automatic failures are counted in Stats.
 // A failed batch is not retried (a sink may have partially committed it).
+// Create one with NewEventBuffer. The zero value drops every event and returns
+// an error from Flush and Close.
 type EventBuffer struct {
 	mu      sync.Mutex
 	queue   []ToolCallEvent
@@ -38,6 +40,8 @@ type EventBuffer struct {
 	stop    chan struct{}
 	done    chan struct{}
 }
+
+var errUninitialized = errors.New("mcpsignals: EventBuffer must be created with NewEventBuffer")
 
 // NewEventBuffer starts one worker unless Manual is set. No network calls are
 // made until events are flushed. Call Close after stopping/draining the server.
@@ -99,6 +103,9 @@ func (b *EventBuffer) Stats() BufferStats { b.mu.Lock(); defer b.mu.Unlock(); re
 // After dequeue the batch is attempted once, even on cancellation or failure.
 // Sinks must honor ctx; Go cannot interrupt arbitrary user code.
 func (b *EventBuffer) Flush(ctx context.Context) error {
+	if b.gate == nil {
+		return errUninitialized
+	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -144,6 +151,9 @@ func writeSink(ctx context.Context, sink Sink, batch []ToolCallEvent) (err error
 // after a timeout. Stop and drain MCP requests before calling Close.
 // Sink ownership remains with the application; Close does not close sinks.
 func (b *EventBuffer) Close(ctx context.Context) error {
+	if b.stop == nil {
+		return errUninitialized
+	}
 	b.mu.Lock()
 	if !b.closed {
 		b.closed = true

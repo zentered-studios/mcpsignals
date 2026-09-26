@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { postgresSink, type ToolCallEvent } from 'mcpsignals';
 
-const TOOL_CALL_COLUMNS = 19;
+const TOOL_CALL_COLUMNS = 27;
 
 function makeToolCallEvent(overrides: Partial<ToolCallEvent> = {}): ToolCallEvent {
   return {
@@ -26,6 +26,14 @@ function makeToolCallEvent(overrides: Partial<ToolCallEvent> = {}): ToolCallEven
     arguments: null,
     intent: null,
     transport: null,
+    protocol_version: null,
+    request_id: null,
+    trace_id: null,
+    parent_span_id: null,
+    result_type: null,
+    error_code: null,
+    read_only_hint: null,
+    destructive_hint: null,
     ...overrides
   };
 }
@@ -54,7 +62,7 @@ function placeholders(text: string): number[] {
   return [...text.matchAll(/\$(\d+)/g)].map(m => Number(m[1]));
 }
 
-test('N tool_call events produce exactly one query with 19*N placeholders and a flat values array', async () => {
+test('N tool_call events produce exactly one query with 27*N placeholders and a flat values array', async () => {
   const pool = makeFakePool();
   const sink = postgresSink({ pool });
 
@@ -75,7 +83,7 @@ test('N tool_call events produce exactly one query with 19*N placeholders and a 
     Array.from({ length: TOOL_CALL_COLUMNS * 3 }, (_, i) => i + 1),
     'placeholders must be $1..$57 in order'
   );
-  assert.match(text, /\(\$1,.*\$19\),\s*\(\$20,.*\$38\),\s*\(\$39,.*\$57\)/s);
+  assert.match(text, /\(\$1,.*\$27\),\s*\(\$28,.*\$54\),\s*\(\$55,.*\$81\)/s);
 
   assert.equal(values.length, TOOL_CALL_COLUMNS * 3);
   // Column order is (ts, server_name, server_version, tool_name, ..., duration_ms at 10, success at 11).
@@ -126,8 +134,8 @@ test('respects a custom table name', async () => {
 });
 
 // Postgres rejects a statement carrying more than 65535 bind parameters
-// (the wire protocol sends the count as an unsigned 16-bit integer). At 19
-// columns that ceiling is 3449 tool_call rows, which the default bufferSize
+// (the wire protocol sends the count as an unsigned 16-bit integer). At 27
+// columns that ceiling is 2427 tool_call rows, which the default bufferSize
 // of 20 never approaches - but `bufferSize` is a public option, so a batch
 // can arrive well above it. Unchunked, the statement was rejected outright
 // and the whole flush was lost.
@@ -136,7 +144,7 @@ const PG_MAX_BIND_PARAMETERS = 65535;
 test('a batch above the bind-parameter ceiling is split into several statements', async () => {
   const pool = makeFakePool();
   const sink = postgresSink({ pool });
-  const rows = 4000; // 4000 * 19 = 76000 bind parameters, over the ceiling
+  const rows = 4000; // 4000 * 27 = 108000 bind parameters, over the ceiling
 
   await sink.write(Array.from({ length: rows }, (_, i) => makeToolCallEvent({ duration_ms: i })));
 
@@ -163,7 +171,7 @@ test('a batch above the bind-parameter ceiling is split into several statements'
 test('a batch at exactly the bind-parameter ceiling still goes out as one statement', async () => {
   const pool = makeFakePool();
   const sink = postgresSink({ pool });
-  const rows = Math.floor(PG_MAX_BIND_PARAMETERS / TOOL_CALL_COLUMNS); // 3449
+  const rows = Math.floor(PG_MAX_BIND_PARAMETERS / TOOL_CALL_COLUMNS); // 2427
 
   await sink.write(Array.from({ length: rows }, () => makeToolCallEvent()));
 

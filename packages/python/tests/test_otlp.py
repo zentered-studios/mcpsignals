@@ -99,6 +99,41 @@ async def test_each_tool_call_span_starts_from_root_context():
         assert span["end_time"] == start_ns + event.duration_ms * 1_000_000
 
 
+@pytest.mark.asyncio
+async def test_a_tool_call_with_trace_context_is_parented_on_the_caller_span():
+    tracer = RecordingTracer()
+    ambient = NonRecordingSpan(
+        SpanContext(
+            trace_id=0x11111111111111111111111111111111,
+            span_id=0x2222222222222222,
+            is_remote=False,
+            trace_flags=TraceFlags(TraceFlags.SAMPLED),
+        )
+    )
+    event = make_event(
+        trace_id="0af7651916cd43dd8448eb211c80319c", parent_span_id="b7ad6b7169203331"
+    )
+
+    token = otel_context.attach(trace.set_span_in_context(ambient))
+    try:
+        await OtlpSink(tracer=tracer).write([event])
+    finally:
+        otel_context.detach(token)
+
+    parent = trace.get_current_span(tracer.spans[0]["context"]).get_span_context()
+    assert parent.trace_id == 0x0AF7651916CD43DD8448EB211C80319C
+    assert parent.span_id == 0xB7AD6B7169203331
+    assert parent.is_remote is True
+
+
+@pytest.mark.asyncio
+async def test_a_json_rpc_error_sets_error_type_and_status_code_to_its_code():
+    span = await span_for(make_event(success=False, error_code=-32602, error_message="bad q"))
+
+    assert span["attributes"]["error.type"] == "-32602"
+    assert span["attributes"]["rpc.response.status_code"] == "-32602"
+
+
 # The attribute mapping is the sink's whole product, and every `gen_ai.*` /
 # `mcp.*` name below is Development status in the OTel GenAI semantic
 # conventions, so it moves. These tests pin what we emit today; a convention
@@ -124,10 +159,20 @@ async def test_a_fully_populated_event_maps_to_the_documented_attribute_set():
             arguments={"a": 1},
             request_bytes=11,
             response_bytes=22,
+            protocol_version="2026-07-28",
+            request_id="7",
+            result_type="complete",
+            read_only_hint=True,
+            destructive_hint=False,
         )
     )
 
     assert span["attributes"] == {
+        "mcp.protocol.version": "2026-07-28",
+        "jsonrpc.request.id": "7",
+        "mcpsignals.result.type": "complete",
+        "mcpsignals.tool.read_only_hint": True,
+        "mcpsignals.tool.destructive_hint": False,
         "mcp.method.name": "tools/call",
         "gen_ai.operation.name": "execute_tool",
         "gen_ai.tool.name": "search",

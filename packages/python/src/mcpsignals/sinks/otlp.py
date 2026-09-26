@@ -1,8 +1,9 @@
 """OTLP sink. Requires the `otlp` extra (opentelemetry-api only, not an SDK
 or exporter - relies on whatever global TracerProvider the host app already
-configured, the standard "zero-code" OTel pattern). Emits one root span per
-tool call; spans are never parented to the context current at flush time
-(see the note at `start_span` in `write`).
+configured, the standard "zero-code" OTel pattern). Emits one span per tool
+call: a child of the caller's span when the request carried a `traceparent`,
+a root span otherwise. Spans are never parented to the context current at
+flush time (see the note at `start_span` in `write`).
 
 Field mapping verified against the live OpenTelemetry GenAI semantic
 conventions for MCP (open-telemetry/semantic-conventions-genai,
@@ -38,7 +39,15 @@ class OtlpSink:
 
     async def write(self, events: list[ToolCallEvent]) -> None:
         from opentelemetry.context import Context
-        from opentelemetry.trace import SpanKind, Status, StatusCode
+        from opentelemetry.trace import (
+            NonRecordingSpan,
+            SpanContext,
+            SpanKind,
+            Status,
+            StatusCode,
+            TraceFlags,
+            set_span_in_context,
+        )
 
         for event in events:
             attributes = {
@@ -71,8 +80,23 @@ class OtlpSink:
             if event.intent:
                 attributes["mcpsignals.intent"] = event.intent
             if not event.success:
-                # The semconv value for an `isError` tool result. Same as the Node sink.
-                attributes["error.type"] = "tool_error"
+                # A JSON-RPC error's code, else the semconv value for an
+                # `isError` tool result. Same as the Node sink.
+                if event.error_code is not None:
+                    attributes["error.type"] = str(event.error_code)
+                    attributes["rpc.response.status_code"] = str(event.error_code)
+                else:
+                    attributes["error.type"] = "tool_error"
+            if event.protocol_version:
+                attributes["mcp.protocol.version"] = event.protocol_version
+            if event.request_id:
+                attributes["jsonrpc.request.id"] = event.request_id
+            if event.result_type:
+                attributes["mcpsignals.result.type"] = event.result_type
+            if event.read_only_hint is not None:
+                attributes["mcpsignals.tool.read_only_hint"] = event.read_only_hint
+            if event.destructive_hint is not None:
+                attributes["mcpsignals.tool.destructive_hint"] = event.destructive_hint
             if event.error_kind:
                 attributes["mcpsignals.error.kind"] = event.error_kind
             if event.arguments is not None:
@@ -88,10 +112,26 @@ class OtlpSink:
             # The batch is usually written from inside whatever request handler
             # pushed the last event, so the current context (the default
             # parent) belongs to an unrelated span. Start from an empty
-            # Context so every tool call is its own root span.
+            # Context, or from the caller's span when the request carried a
+            # `traceparent`. The event does not keep the caller's trace flags,
+            # so the remote parent is marked sampled and the host's sampler
+            # decides.
+            parent = Context()
+            if event.trace_id and event.parent_span_id:
+                parent = set_span_in_context(
+                    NonRecordingSpan(
+                        SpanContext(
+                            trace_id=int(event.trace_id, 16),
+                            span_id=int(event.parent_span_id, 16),
+                            is_remote=True,
+                            trace_flags=TraceFlags(TraceFlags.SAMPLED),
+                        )
+                    ),
+                    parent,
+                )
             span = self._tracer.start_span(
                 f"tools/call {event.tool_name}",
-                context=Context(),
+                context=parent,
                 kind=SpanKind.SERVER,
                 attributes=attributes,
                 start_time=start_ns,

@@ -57,6 +57,11 @@ const encoder = new TextEncoder();
  * `write()` checks the returned results either way, so a failure can't be
  * mistaken for a successful flush.
  */
+/** SQLite has no boolean type: 1, 0, or null for "not declared". */
+function sqliteBoolean(value: boolean | null): number | null {
+  return value === null ? null : value ? 1 : 0;
+}
+
 export function d1Sink(db: D1Database, options: D1SinkOptions = {}): Sink {
   const toolCallTable = options.toolCallTable ?? 'mcpsignals_tool_call';
 
@@ -88,8 +93,9 @@ export function d1Sink(db: D1Database, options: D1SinkOptions = {}): Sink {
               `insert into ${toolCallTable}
                 (ts, server_name, server_version, tool_name, session_id, agent_id, client_name, client_version,
                  user_id, org_id, duration_ms, success, error_kind, error_message, request_bytes, response_bytes,
-                 arguments, intent, transport)
-               values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+                 arguments, intent, transport, protocol_version, request_id, trace_id, parent_span_id,
+                 result_type, error_code, read_only_hint, destructive_hint)
+               values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
             )
             .bind(
               event.ts.getTime(),
@@ -110,7 +116,15 @@ export function d1Sink(db: D1Database, options: D1SinkOptions = {}): Sink {
               event.response_bytes,
               boundArguments(event.arguments),
               event.intent,
-              event.transport
+              event.transport,
+              event.protocol_version,
+              event.request_id,
+              event.trace_id,
+              event.parent_span_id,
+              event.result_type,
+              event.error_code,
+              sqliteBoolean(event.read_only_hint),
+              sqliteBoolean(event.destructive_hint)
             )
         );
 

@@ -26,6 +26,14 @@ _TOOL_CALL_COLUMNS = [
     "arguments",
     "intent",
     "transport",
+    "protocol_version",
+    "request_id",
+    "trace_id",
+    "parent_span_id",
+    "result_type",
+    "error_code",
+    "read_only_hint",
+    "destructive_hint",
 ]
 
 
@@ -80,6 +88,14 @@ class PostgresSink:
                         _json.dumps(e.arguments) if e.arguments is not None else None,
                         e.intent,
                         e.transport,
+                        e.protocol_version,
+                        e.request_id,
+                        e.trace_id,
+                        e.parent_span_id,
+                        e.result_type,
+                        e.error_code,
+                        e.read_only_hint,
+                        e.destructive_hint,
                     )
                     for e in tool_calls
                 ]

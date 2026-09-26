@@ -76,7 +76,15 @@ export function bigquerySink(options: BigQuerySinkOptions = {}): Sink {
               response_bytes: e.response_bytes,
               arguments: e.arguments ? JSON.stringify(e.arguments) : null,
               intent: e.intent,
-              transport: e.transport
+              transport: e.transport,
+              protocol_version: e.protocol_version,
+              request_id: e.request_id,
+              trace_id: e.trace_id,
+              parent_span_id: e.parent_span_id,
+              result_type: e.result_type,
+              error_code: e.error_code,
+              read_only_hint: e.read_only_hint,
+              destructive_hint: e.destructive_hint
             }))
           );
       }

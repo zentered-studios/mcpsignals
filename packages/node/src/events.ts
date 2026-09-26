@@ -39,7 +39,18 @@ export interface ToolCallEvent {
   arguments: Record<string, unknown> | null;
   intent: string | null;
   transport: string | null;
+  protocol_version: string | null;
+  request_id: string | null;
+  trace_id: string | null;
+  parent_span_id: string | null;
+  result_type: ResultType | null;
+  error_code: number | null;
+  read_only_hint: boolean | null;
+  destructive_hint: boolean | null;
 }
+
+/** A `tools/call` result's `resultType` (protocol revision 2026-07-28). Older revisions only ever produce `complete`. */
+export type ResultType = 'complete' | 'input_required';
 
 /**
  * What a sink receives. There is one event type today, so this is an alias

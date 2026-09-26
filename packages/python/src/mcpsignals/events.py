@@ -16,6 +16,10 @@ ErrorKind = Literal[
 ]
 ERROR_KINDS: tuple[ErrorKind, ...] = get_args(ErrorKind)
 
+#: A `tools/call` result's `resultType` (protocol revision 2026-07-28).
+#: Older revisions only ever produce `complete`.
+ResultType = Literal["complete", "input_required"]
+
 #: `_meta` key a tool handler sets on an `isError` result to record the
 #: `error_kind` it already knows, instead of relying on `classify_error`.
 ERROR_KIND_META_KEY = "mcpsignals/error_kind"
@@ -43,6 +47,14 @@ class ToolCallEvent:
     arguments: dict[str, Any] | None = None
     intent: str | None = None
     transport: str | None = None
+    protocol_version: str | None = None
+    request_id: str | None = None
+    trace_id: str | None = None
+    parent_span_id: str | None = None
+    result_type: ResultType | None = None
+    error_code: int | None = None
+    read_only_hint: bool | None = None
+    destructive_hint: bool | None = None
 
 
 #: What a sink receives. There is one event type today, so this is an alias

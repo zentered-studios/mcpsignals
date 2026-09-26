@@ -1,6 +1,7 @@
 import type { McpServer } from '@modelcontextprotocol/server';
 import type { Sink } from './sinks/types.js';
 import { ERROR_KIND_META_KEY, type ToolCallEvent } from './events.js';
+import { parseTraceparent } from './trace-context.js';
 import { classifyError, isErrorKind } from './error-kind.js';
 import { applyRedaction, type RedactionConfig } from './redaction.js';
 import {
@@ -59,12 +60,33 @@ export interface InstrumentHandle {
 interface ToolCallContext {
   sessionId?: string;
   http?: unknown;
+  mcpReq?: {
+    id?: unknown;
+    /** The request `_meta`, with the reserved `io.modelcontextprotocol/*` keys lifted into `envelope`. */
+    _meta?: Record<string, unknown>;
+    envelope?: Record<string, unknown>;
+  };
 }
 
 interface ToolResultLike {
   content?: Array<{ type: string; text?: string }>;
   isError?: boolean;
+  resultType?: unknown;
   _meta?: Record<string, unknown>;
+}
+
+/** The part of McpServer's `RegisteredTool` this file reads. Its `annotations` change on `update()`. */
+interface RegisteredToolLike {
+  annotations?: { readOnlyHint?: unknown; destructiveHint?: unknown };
+}
+
+const PROTOCOL_VERSION_META_KEY = 'io.modelcontextprotocol/protocolVersion';
+
+/** JSON-RPC's code for an error with no code of its own, as the SDK answers it. */
+const INTERNAL_ERROR_CODE = -32603;
+
+function booleanOrNull(value: unknown): boolean | null {
+  return typeof value === 'boolean' ? value : null;
 }
 
 interface ToolsCallRequest {
@@ -205,8 +227,8 @@ export function instrument(server: McpServer, options: InstrumentOptions): Instr
    * callback, so both layers see the same object.
    */
   const handlerCalls = new WeakMap<object, IntentFields>();
-  /** Registered tool name -> whether intent capture injected its schema. */
-  const registeredTools = new Map<string, boolean>();
+  /** Registered tool name -> whether intent capture injected its schema, and the SDK's tool object. */
+  const registeredTools = new Map<string, { canInject: boolean; tool?: RegisteredToolLike }>();
 
   const originalRegisterTool = server.registerTool.bind(server);
 
@@ -218,7 +240,8 @@ export function instrument(server: McpServer, options: InstrumentOptions): Instr
     const intentEnabled = isIntentCaptureEnabled(options.intentCapture, name);
     const originalInputSchema = config.inputSchema;
     const canInject = intentEnabled && schemaSupportsInjection(originalInputSchema);
-    registeredTools.set(name, canInject);
+    const registration: { canInject: boolean; tool?: RegisteredToolLike } = { canInject };
+    registeredTools.set(name, registration);
 
     const wrappedConfig = canInject
       ? { ...config, inputSchema: injectIntentSchema(originalInputSchema) }
@@ -252,11 +275,14 @@ export function instrument(server: McpServer, options: InstrumentOptions): Instr
     // The real `registerTool` overloads are exact per input/output schema shape; a
     // generic wrapper can't preserve that precision through a monkey-patch, so we
     // widen to `any` at this one call site rather than fighting the overload set.
-    return (originalRegisterTool as (...args: unknown[]) => unknown)(
+    const tool = (originalRegisterTool as (...args: unknown[]) => unknown)(
       name,
       wrappedConfig,
       wrappedCb
     );
+    // Read at call time, not now, so `RegisteredTool.update({ annotations })` is honored.
+    registration.tool = tool as RegisteredToolLike;
+    return tool;
   }) as typeof server.registerTool;
 
   /**
@@ -298,14 +324,34 @@ export function instrument(server: McpServer, options: InstrumentOptions): Instr
      */
     const push = async (
       durationMs: number,
-      partial: Pick<ToolCallEvent, 'success' | 'error_kind' | 'error_message' | 'response_bytes'>
+      partial: Pick<
+        ToolCallEvent,
+        'success' | 'error_kind' | 'error_message' | 'response_bytes' | 'result_type' | 'error_code'
+      >
     ) => {
+      const registration = registeredTools.get(rawName);
       // The callback's view when it ran. When it never ran, read the raw
       // arguments the way it would have, so a rejected call still records intent.
       const rawRecord = isRecord(rawArgs) ? rawArgs : {};
       const fields =
         handlerCalls.get(ctx) ??
-        (registeredTools.get(rawName) ? extractIntentFields(rawRecord) : noIntentFields(rawRecord));
+        (registration?.canInject ? extractIntentFields(rawRecord) : noIntentFields(rawRecord));
+
+      // Revision 2026-07-28 carries the version on every request's envelope;
+      // earlier revisions negotiate it once in `initialize`. Either way the
+      // client supplied it, so it takes the identifier cap. The accessor is
+      // deprecated for the same reason as getClientVersion() below and is
+      // only the fallback for a request with no envelope.
+      const protocolVersion = boundedString(
+        ctx.mcpReq?.envelope?.[PROTOCOL_VERSION_META_KEY] ??
+          server.server.getNegotiatedProtocolVersion(),
+        MAX_IDENTIFIER_LENGTH
+      );
+      const requestId = ctx.mcpReq?.id;
+      // `_meta` is the MCP protocol's field name.
+      // oxlint-disable-next-line no-underscore-dangle
+      const trace = parseTraceparent(ctx.mcpReq?._meta?.traceparent);
+      const annotations = registration?.tool?.annotations;
 
       // A host resolver that throws or rejects records a null identity.
       let identity: { userId?: string; orgId?: string } = {};
@@ -355,6 +401,15 @@ export function instrument(server: McpServer, options: InstrumentOptions): Instr
         arguments: recordedArguments,
         intent: fields.intent,
         transport: ctx.http ? 'http' : 'stdio',
+        protocol_version: protocolVersion,
+        request_id:
+          typeof requestId === 'string' || typeof requestId === 'number'
+            ? boundedString(String(requestId), MAX_IDENTIFIER_LENGTH)
+            : null,
+        trace_id: trace?.traceId ?? null,
+        parent_span_id: trace?.parentSpanId ?? null,
+        read_only_hint: booleanOrNull(annotations?.readOnlyHint),
+        destructive_hint: booleanOrNull(annotations?.destructiveHint),
         ...partial
       });
     };
@@ -373,11 +428,16 @@ export function instrument(server: McpServer, options: InstrumentOptions): Instr
         async () => {
           const message = error instanceof Error ? error.message : String(error);
           const truncated = message.length > 2000 ? message.slice(0, 2000) : message;
+          // The same rule the SDK uses to answer: the error's own integer
+          // `code` (a ProtocolError's), otherwise internal error.
+          const code = (error as { code?: unknown } | null)?.code;
           await push(durationMs, {
             success: false,
             error_kind: classifyError(truncated),
             error_message: truncated,
-            response_bytes: 0
+            response_bytes: 0,
+            result_type: null,
+            error_code: Number.isSafeInteger(code) ? (code as number) : INTERNAL_ERROR_CODE
           });
         },
         undefined
@@ -390,6 +450,8 @@ export function instrument(server: McpServer, options: InstrumentOptions): Instr
       'event recording',
       async () => {
         const responseBytes = guarded('response byte count', () => byteLength(result), 0);
+        // Absent means complete: the SDK stamps `resultType` after this layer.
+        const resultType = result?.resultType === 'input_required' ? 'input_required' : 'complete';
         if (result?.isError) {
           const errorMessage = extractErrorMessage(result);
           // A kind the handler declared wins; an unknown value falls back to the heuristic.
@@ -405,14 +467,18 @@ export function instrument(server: McpServer, options: InstrumentOptions): Instr
             success: false,
             error_kind: isErrorKind(declaredKind) ? declaredKind : classifyError(errorMessage),
             error_message: errorMessage,
-            response_bytes: responseBytes
+            response_bytes: responseBytes,
+            result_type: resultType,
+            error_code: null
           });
         } else {
           await push(durationMs, {
             success: true,
             error_kind: null,
             error_message: null,
-            response_bytes: responseBytes
+            response_bytes: responseBytes,
+            result_type: resultType,
+            error_code: null
           });
         }
       },

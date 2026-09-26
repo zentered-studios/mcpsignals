@@ -44,6 +44,14 @@ One row per tool invocation.
 | `arguments` | json | yes | The tool call's arguments. Null unless argument capture is explicitly enabled. Subject to redaction - see the redaction section of the top-level README. |
 | `intent` | string | yes | The calling agent's stated reason for the call. Only present when intent capture is enabled for this tool. Truncated to 2000 chars. |
 | `transport` | string | yes | `stdio` or `http`. Both packages default to `stdio` when there is no HTTP request context, so neither emits null today; the column stays nullable for future transports. |
+| `protocol_version` | string | yes | The MCP protocol revision the call was served on, e.g. `2025-11-25` or `2026-07-28`: from the request's `io.modelcontextprotocol/protocolVersion` `_meta` key on 2026-07-28, otherwise the version negotiated in `initialize`. Truncated to 128 chars. |
+| `request_id` | string | yes | The JSON-RPC request `id`, as a string. Unique per in-flight request on one connection, not globally. Truncated to 128 chars. |
+| `trace_id` | string | yes | The 32-hex-char trace id of the W3C `traceparent` the client sent in the request `_meta`. Null when there was none or it was malformed. |
+| `parent_span_id` | string | yes | The 16-hex-char span id from the same `traceparent`: the caller's span, which this call's span is a child of. |
+| `result_type` | enum | yes | `complete` or `input_required`. `input_required` is a 2026-07-28 multi-round-trip round: the server asked the client for input and the client will call again. Null when the call was answered with a JSON-RPC error. |
+| `error_code` | integer | yes | The JSON-RPC error code, when the call was answered with a JSON-RPC error rather than a result (e.g. `-32602` for an unknown tool in the TypeScript SDK). Null for every result, `isError` ones included. Python records null for an exception whose code depends on the transport. |
+| `read_only_hint` | boolean | yes | The tool's `readOnlyHint` annotation. Null when the tool does not declare it; the spec default is false. Self-declared by the server, not verified. |
+| `destructive_hint` | boolean | yes | The tool's `destructiveHint` annotation. Null when the tool does not declare it; the spec default is true, meaningful only when `readOnlyHint` is false. |
 
 ### `error_kind` is declared by the server or guessed from the message
 
@@ -141,7 +149,15 @@ create table mcpsignals_tool_call (
   response_bytes  integer         not null,
   arguments       jsonb,
   intent          text,
-  transport       text
+  transport       text,
+  protocol_version text,
+  request_id      text,
+  trace_id        text,
+  parent_span_id  text,
+  result_type     text,
+  error_code      integer,
+  read_only_hint  boolean,
+  destructive_hint boolean
 );
 
 create index on mcpsignals_tool_call (ts);
@@ -171,7 +187,15 @@ create table if not exists `mcpsignals.tool_call` (
   response_bytes  int64        not null,
   arguments       json,
   intent          string,
-  transport       string
+  transport       string,
+  protocol_version string,
+  request_id      string,
+  trace_id        string,
+  parent_span_id  string,
+  result_type     string,
+  error_code      int64,
+  read_only_hint  bool,
+  destructive_hint bool
 )
 partition by date(ts)
 cluster by server_name, tool_name;
@@ -199,7 +223,15 @@ create table mcpsignals_tool_call (
   response_bytes  integer  not null,
   arguments       text,               -- JSON-encoded; null if absent or oversized, see d1Sink
   intent          text,
-  transport       text
+  transport       text,
+  protocol_version text,
+  request_id      text,
+  trace_id        text,
+  parent_span_id  text,
+  result_type     text,
+  error_code      integer,
+  read_only_hint  integer,            -- 0, 1, or null when the tool does not declare it
+  destructive_hint integer            -- 0, 1, or null when the tool does not declare it
 );
 
 create index idx_mcpsignals_tool_call_ts on mcpsignals_tool_call (ts);
@@ -242,7 +274,15 @@ create table mcpsignals_tool_call (
   response_bytes  UInt32,
   arguments       Nullable(String),
   intent          Nullable(String),
-  transport       Nullable(String)
+  transport       Nullable(String),
+  protocol_version LowCardinality(Nullable(String)),
+  request_id      Nullable(String),
+  trace_id        Nullable(String),
+  parent_span_id  Nullable(String),
+  result_type     LowCardinality(Nullable(String)),
+  error_code      Nullable(Int32),
+  read_only_hint  Nullable(Bool),
+  destructive_hint Nullable(Bool)
 )
 engine = MergeTree
 partition by toYYYYMM(ts)
@@ -256,6 +296,64 @@ serialized JSON string. Query it with `JSONExtract*` functions or, on
 ClickHouse versions where the `JSON` type is stable, swap the column type
 and confirm before relying on it in production.
 
+### Adding the protocol columns to an existing table
+
+`protocol_version`, `request_id`, `trace_id`, `parent_span_id`,
+`result_type`, `error_code`, `read_only_hint` and `destructive_hint` were
+added after the tables above were first published. Every column is
+nullable, but the Postgres, BigQuery and D1 sinks insert them by name, so
+run these before deploying the release that writes them. Otherwise inserts
+fail and EventBuffer drops those batches.
+
+```sql
+-- Postgres
+alter table mcpsignals_tool_call
+  add column protocol_version text,
+  add column request_id       text,
+  add column trace_id         text,
+  add column parent_span_id   text,
+  add column result_type      text,
+  add column error_code       integer,
+  add column read_only_hint   boolean,
+  add column destructive_hint boolean;
+
+-- BigQuery
+alter table `mcpsignals.tool_call`
+  add column protocol_version string,
+  add column request_id       string,
+  add column trace_id         string,
+  add column parent_span_id   string,
+  add column result_type      string,
+  add column error_code       int64,
+  add column read_only_hint   bool,
+  add column destructive_hint bool;
+
+-- D1 (SQLite takes one column per statement)
+alter table mcpsignals_tool_call add column protocol_version text;
+alter table mcpsignals_tool_call add column request_id text;
+alter table mcpsignals_tool_call add column trace_id text;
+alter table mcpsignals_tool_call add column parent_span_id text;
+alter table mcpsignals_tool_call add column result_type text;
+alter table mcpsignals_tool_call add column error_code integer;
+alter table mcpsignals_tool_call add column read_only_hint integer;
+alter table mcpsignals_tool_call add column destructive_hint integer;
+
+-- ClickHouse
+alter table mcpsignals_tool_call
+  add column protocol_version LowCardinality(Nullable(String)),
+  add column request_id       Nullable(String),
+  add column trace_id         Nullable(String),
+  add column parent_span_id   Nullable(String),
+  add column result_type      LowCardinality(Nullable(String)),
+  add column error_code       Nullable(Int32),
+  add column read_only_hint   Nullable(Bool),
+  add column destructive_hint Nullable(Bool);
+```
+
+For D1, put the statements in a new migration (`wrangler d1 migrations
+create <db-name> add_mcpsignals_protocol_columns`) rather than running them
+by hand.
+
 ## OTLP mapping
 
 The `otlp` sink emits `tool_call` as a span rather than a warehouse row. It
@@ -264,6 +362,10 @@ implementation for the field-by-field mapping to OpenTelemetry GenAI
 semantic-convention attribute names - that mapping is verified against the
 live spec at implementation time (this schema predates that verification and
 must not be treated as the source of truth for OTel attribute names).
+
+A span is a root span unless the event has `trace_id` and `parent_span_id`.
+Then it is a child of the caller's span, so a client that propagates
+`traceparent` sees the tool call inside its own trace.
 
 ## The `session_summary` event type, removed in v3
 

@@ -24,6 +24,14 @@ function makeToolCallEvent(overrides: Partial<ToolCallEvent> = {}): ToolCallEven
     arguments: null,
     intent: null,
     transport: null,
+    protocol_version: null,
+    request_id: null,
+    trace_id: null,
+    parent_span_id: null,
+    result_type: null,
+    error_code: null,
+    read_only_hint: null,
+    destructive_hint: null,
     ...overrides
   };
 }
@@ -84,6 +92,23 @@ test('writes tool_call rows in a single batch() call, ts as epoch ms, success as
 
   const failedRowValues = statements[1].values;
   assert.equal(failedRowValues[11], 0);
+});
+
+test('tool hints are written as 1/0, and null stays null', async () => {
+  const db = makeFakeDb();
+  const sink = d1Sink(db as unknown as Parameters<typeof d1Sink>[0]);
+
+  await sink.write([
+    makeToolCallEvent({ read_only_hint: true, destructive_hint: false, error_code: -32602 })
+  ]);
+
+  const [statement] = db.batchCalls[0];
+  assert.match(statement.query, /read_only_hint, destructive_hint\)/);
+  const values = statement.values;
+  assert.deepEqual(values.slice(-3), [-32602, 1, 0]);
+
+  await sink.write([makeToolCallEvent()]);
+  assert.deepEqual(db.batchCalls[1][0].values.slice(-2), [null, null]);
 });
 
 test('a multi-event batch still goes through one batch() call', async () => {

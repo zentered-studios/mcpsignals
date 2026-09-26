@@ -15,12 +15,14 @@ function networkAttributes(transport: string | null): Record<string, string> {
 }
 
 /**
- * Emits one root span per `tool_call` event via the global OpenTelemetry
+ * Emits one span per `tool_call` event via the global OpenTelemetry
  * TracerProvider — this sink does not manage its own exporter, it relies on
  * whatever the host application already configured (the standard OTel
  * zero-code pattern). Requires the optional peer dependency
- * `@opentelemetry/api` only (not an SDK or exporter). Spans are never
- * parented to the context active at flush time; see the note at `startSpan`.
+ * `@opentelemetry/api` only (not an SDK or exporter). A span is a child of
+ * the caller's span when the request carried a `traceparent`, and a root
+ * span otherwise. It is never parented to the context active at flush time;
+ * see the note at `startSpan`.
  *
  * Attribute mapping verified against the live `open-telemetry/semantic-
  * conventions-genai` repo (docs/gen-ai/mcp.md) as of this writing. Every
@@ -39,8 +41,19 @@ export function otlpSink(): Sink {
 
         // Events are written in batches, usually from inside whatever request
         // handler pushed the last event, so context.active() (the default
-        // parent) belongs to an unrelated span. Start from ROOT_CONTEXT so
-        // every tool call is its own root span.
+        // parent) belongs to an unrelated span. Start from ROOT_CONTEXT, or
+        // from the caller's span when the request carried a `traceparent`.
+        // The event does not keep the caller's trace flags, so the remote
+        // parent is marked sampled and the host's sampler decides.
+        const parent =
+          event.trace_id !== null && event.parent_span_id !== null
+            ? otel.trace.setSpanContext(otel.ROOT_CONTEXT, {
+                traceId: event.trace_id,
+                spanId: event.parent_span_id,
+                traceFlags: otel.TraceFlags.SAMPLED,
+                isRemote: true
+              })
+            : otel.ROOT_CONTEXT;
         const span = tracer.startSpan(
           `tools/call ${event.tool_name}`,
           {
@@ -70,14 +83,31 @@ export function otlpSink(): Sink {
               ...(event.transport !== null && { 'mcpsignals.transport': event.transport }),
               'mcpsignals.request.bytes': event.request_bytes,
               'mcpsignals.response.bytes': event.response_bytes,
-              ...(event.error_kind !== null && { 'mcpsignals.error.kind': event.error_kind })
+              ...(event.error_kind !== null && { 'mcpsignals.error.kind': event.error_kind }),
+              ...(event.protocol_version !== null && {
+                'mcp.protocol.version': event.protocol_version
+              }),
+              ...(event.request_id !== null && { 'jsonrpc.request.id': event.request_id }),
+              ...(event.result_type !== null && { 'mcpsignals.result.type': event.result_type }),
+              ...(event.read_only_hint !== null && {
+                'mcpsignals.tool.read_only_hint': event.read_only_hint
+              }),
+              ...(event.destructive_hint !== null && {
+                'mcpsignals.tool.destructive_hint': event.destructive_hint
+              })
             }
           },
-          otel.ROOT_CONTEXT
+          parent
         );
 
         if (!event.success) {
-          span.setAttribute('error.type', 'tool_error');
+          // A JSON-RPC error's code, else the value the semconv gives an `isError` result.
+          if (event.error_code !== null) {
+            span.setAttribute('error.type', String(event.error_code));
+            span.setAttribute('rpc.response.status_code', String(event.error_code));
+          } else {
+            span.setAttribute('error.type', 'tool_error');
+          }
           span.setStatus({
             code: otel.SpanStatusCode.ERROR,
             message: event.error_message ?? undefined

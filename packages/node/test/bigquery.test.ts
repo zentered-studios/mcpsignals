@@ -24,6 +24,14 @@ function makeToolCallEvent(overrides: Partial<ToolCallEvent> = {}): ToolCallEven
     arguments: null,
     intent: null,
     transport: null,
+    protocol_version: null,
+    request_id: null,
+    trace_id: null,
+    parent_span_id: null,
+    result_type: null,
+    error_code: null,
+    read_only_hint: null,
+    destructive_hint: null,
     ...overrides
   };
 }

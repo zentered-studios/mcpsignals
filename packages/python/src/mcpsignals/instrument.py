@@ -34,9 +34,13 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from typing import Any
 
+from mcp.server.mcpserver import MCPServer
+from mcp.shared.exceptions import MCPError
+from pydantic import ValidationError
+
 from mcpsignals.buffer import EventBuffer
 from mcpsignals.error_kind import classify_error, is_error_kind
-from mcpsignals.events import ERROR_KIND_META_KEY, ErrorKind, ToolCallEvent
+from mcpsignals.events import ERROR_KIND_META_KEY, ErrorKind, ResultType, ToolCallEvent
 from mcpsignals.handle import InstrumentHandle
 from mcpsignals.handle import register as _register_handle
 from mcpsignals.intent_capture import (
@@ -49,6 +53,13 @@ from mcpsignals.intent_capture import (
 from mcpsignals.redaction import RedactionConfig, redact_arguments
 from mcpsignals.sinks.base import Sink
 from mcpsignals.sinks.console import ConsoleSink
+from mcpsignals.trace_context import parse_traceparent
+
+#: JSON-RPC's code for invalid params, which the SDK answers a pydantic
+#: `ValidationError` with.
+_INVALID_PARAMS = -32602
+
+ToolHints = tuple[bool | None, bool | None]
 
 logger = logging.getLogger("mcpsignals")
 
@@ -94,6 +105,48 @@ def _content_to_text(content: Any) -> str | None:
         if text:
             parts.append(text)
     return "\n".join(parts) if parts else None
+
+
+def _result_type(result: Any) -> ResultType:
+    """`input_required` for a 2026-07-28 multi-round-trip result, else `complete`."""
+    if isinstance(result, Mapping):
+        value = result.get("resultType", result.get("result_type"))
+    else:
+        value = getattr(result, "result_type", None)
+    return "input_required" if value == "input_required" else "complete"
+
+
+def _error_code(exc: BaseException) -> int | None:
+    """The JSON-RPC code the SDK answers `exc` with, where every transport
+    agrees on it. Any other exception is answered with a code that depends on
+    the transport (0 or -32603), so it is recorded as None."""
+    if isinstance(exc, MCPError):
+        return exc.error.code
+    if isinstance(exc, ValidationError):
+        return _INVALID_PARAMS
+    return None
+
+
+def _as_bool(value: Any) -> bool | None:
+    return value if isinstance(value, bool) else None
+
+
+def _tool_hints(tool: Any) -> tuple[str | None, ToolHints]:
+    """A `tools/list` entry's name and its read-only / destructive hints.
+    Handles the wire dict (camelCase) and the `Tool` model (snake_case)."""
+    if isinstance(tool, Mapping):
+        name = tool.get("name")
+        annotations = tool.get("annotations")
+    else:
+        name = getattr(tool, "name", None)
+        annotations = getattr(tool, "annotations", None)
+    if isinstance(annotations, Mapping):
+        read_only = annotations.get("readOnlyHint", annotations.get("read_only_hint"))
+        destructive = annotations.get("destructiveHint", annotations.get("destructive_hint"))
+    else:
+        read_only = getattr(annotations, "read_only_hint", None)
+        destructive = getattr(annotations, "destructive_hint", None)
+    return (name if isinstance(name, str) else None), (_as_bool(read_only), _as_bool(destructive))
 
 
 def _session_id_header(request: Any) -> str | None:
@@ -158,9 +211,34 @@ def instrument(
             exc,
         )
 
+    # Tool name -> (read_only_hint, destructive_hint). Middleware sees only the
+    # request, not the registration, so hints come from the `tools/list`
+    # results passing through, or from `MCPServer.list_tools()` on a miss.
+    tool_hints: dict[str, ToolHints] = {}
+
+    def _remember_hints(tools: Any) -> None:
+        for tool in tools or []:
+            name, hints = _tool_hints(tool)
+            if name is not None:
+                tool_hints[name] = hints
+
+    async def _hints_for(name: str) -> ToolHints:
+        if name not in tool_hints and isinstance(server, MCPServer):
+            _remember_hints(await server.list_tools())
+        return tool_hints.get(name, (None, None))
+
     async def _mcpsignals_middleware(ctx, call_next):
         if ctx.method == "tools/list":
             result = await call_next(ctx)
+            try:
+                tools = (
+                    result.get("tools")
+                    if isinstance(result, Mapping)
+                    else getattr(result, "tools", None)
+                )
+                _remember_hints(tools)
+            except Exception as exc:  # noqa: BLE001 - never changes the tools/list result
+                _warn_once("tool hints", exc)
             if intent_capture or intent_capture_tools:
                 # `call_next` returns a wire-shaped dict here (camelCase keys),
                 # not a ListToolsResult/Tool instance - verified against the
@@ -240,6 +318,19 @@ def instrument(
         # server accepts any value here, so it takes the identifier cap.
         transport_session_id = _session_id_header(http_request)
 
+        # Revision 2026-07-28 carries the version on every request's envelope;
+        # earlier revisions negotiate it in `initialize`. Either way the client
+        # supplied it, so it takes the identifier cap, as does the request id.
+        protocol_version = bounded(getattr(ctx, "protocol_version", None), MAX_IDENTIFIER_LENGTH)
+        request_id = getattr(ctx, "request_id", None)
+        request_id = (
+            bounded(str(request_id), MAX_IDENTIFIER_LENGTH)
+            if isinstance(request_id, (str, int)) and not isinstance(request_id, bool)
+            else None
+        )
+        meta = getattr(ctx, "meta", None)
+        trace = parse_traceparent(meta.get("traceparent") if isinstance(meta, Mapping) else None)
+
         async def _record(ts: datetime, error: BaseException | None, result: Any) -> None:
             # First thing: the handler has just settled, so this is the
             # response time. Everything below, `resolve_identity` included,
@@ -262,12 +353,23 @@ def instrument(
                     _warn_once("resolve_identity", exc)
                     user_id, org_id = None, None
 
+            # After the timed window too: on a miss this lists the server's tools.
+            try:
+                read_only_hint, destructive_hint = await _hints_for(raw_tool_name)
+            except Exception as exc:  # noqa: BLE001 - a hint lookup never costs the event
+                _warn_once("tool hints", exc)
+                read_only_hint, destructive_hint = None, None
+
             declared_kind: ErrorKind | None = None
+            result_type: ResultType | None = None
+            error_code: int | None = None
             if error is not None:
                 success = False
                 error_message: str | None = str(error)[:2000]
                 response_bytes = 0
+                error_code = _error_code(error)
             else:
+                result_type = _result_type(result)
                 success = not _is_error_result(result)
                 error_message = None if success else _content_to_text(_result_content(result))
                 if error_message:
@@ -327,6 +429,14 @@ def instrument(
                 arguments=arguments,
                 intent=extracted.get("intent"),
                 transport=transport,
+                protocol_version=protocol_version,
+                request_id=request_id,
+                trace_id=trace[0] if trace else None,
+                parent_span_id=trace[1] if trace else None,
+                result_type=result_type,
+                error_code=error_code,
+                read_only_hint=read_only_hint,
+                destructive_hint=destructive_hint,
             )
             await buffer.add(event)
 

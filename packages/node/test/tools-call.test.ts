@@ -203,6 +203,34 @@ test('a result the SDK rejects on the wire is recorded as the JSON-RPC error the
   assert.equal(events[0].result_type, null);
 });
 
+test('without the SDK internals, tools/call is recorded through the public setRequestHandler', async () => {
+  type Handler = (request: unknown, ctx: unknown) => Promise<unknown>;
+  let stored: Handler | undefined;
+  // A server without `_wrapHandler` / `_requestHandlers`, as a future SDK may be.
+  const lowLevel = {
+    setRequestHandler: (method: string, handler: Handler) => {
+      if (method === 'tools/call') stored = handler;
+    },
+    getNegotiatedProtocolVersion: () => '2025-11-25',
+    getClientVersion: () => undefined
+  };
+  const { events, flush } = instrumentInto({
+    registerTool: () => ({}),
+    server: lowLevel
+  } as unknown as McpServer);
+  lowLevel.setRequestHandler('tools/call', async () => ({
+    content: [{ type: 'text', text: 'ok' }]
+  }));
+
+  const result = await stored?.({ params: { name: 'echo', arguments: {} } }, { mcpReq: { id: 1 } });
+  assert.deepEqual(result, { content: [{ type: 'text', text: 'ok' }] });
+
+  await flush();
+  assert.equal(events.length, 1);
+  assert.equal(events[0].tool_name, 'echo');
+  assert.equal(events[0].success, true);
+});
+
 test('2025-era input_required: the legacy shim rounds are one call and one event', async () => {
   const { server, events, flush } = createInstrumentedServer();
   let rounds = 0;

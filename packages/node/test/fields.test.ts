@@ -162,7 +162,7 @@ test('a removed tool records null hints', async () => {
   assert.equal(events[0].read_only_hint, null);
 });
 
-async function modernToolsCall(register: (server: McpServer) => void) {
+async function modernToolsCall(register: (server: McpServer) => void, expectedStatus = 200) {
   const events: AnyEvent[] = [];
   let flush!: () => Promise<void>;
   const handler = createMcpHandler(() => {
@@ -204,7 +204,7 @@ async function modernToolsCall(register: (server: McpServer) => void) {
       })
     );
     const body = await response.text();
-    assert.equal(response.status, 200, body);
+    assert.equal(response.status, expectedStatus, body);
     await flush();
     return { events, body };
   } finally {
@@ -237,6 +237,29 @@ test('2026-07-28: an input_required result is recorded as result_type input_requ
   assert.equal(events.length, 1);
   assert.equal(events[0].result_type, 'input_required');
   assert.equal(events[0].success, true);
+});
+
+test('2026-07-28: input_required the client has no capability for is recorded as the error it gets', async () => {
+  const { events, body } = await modernToolsCall(
+    server =>
+      server.registerTool('ask', { inputSchema: z.object({}) }, async () =>
+        inputRequired({
+          inputRequests: {
+            confirm: inputRequired.elicit({
+              message: 'Continue?',
+              requestedSchema: { type: 'object', properties: {} }
+            })
+          }
+        })
+      ),
+    400
+  );
+
+  assert.ok(body.includes('-32021'), body);
+  assert.equal(events.length, 1);
+  assert.equal(events[0].success, false);
+  assert.equal(events[0].result_type, null);
+  assert.equal(events[0].error_code, -32021);
 });
 
 test('parseTraceparent accepts valid headers and rejects everything else', () => {

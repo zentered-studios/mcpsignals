@@ -1,0 +1,9 @@
+did you run all the tests locally?
+
+---
+
+is there an example in the repo how this works for node/python/go?
+
+---
+
+add tooling to github actions to run go tests & deployment same way as python/node

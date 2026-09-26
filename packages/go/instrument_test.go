@@ -304,6 +304,33 @@ func TestSDKBearerTokenReachesResolver(t *testing.T) {
 	}
 }
 
+type userKey struct{}
+
+func TestResolverSeesContextFromMiddlewareAddedLater(t *testing.T) {
+	s := mcp.NewServer(&mcp.Implementation{Name: "test-server"}, nil)
+	h, sink := instrumentTest(t, s, Options{ResolveIdentity: func(ctx context.Context, _ CallContext) (Identity, error) {
+		user, _ := ctx.Value(userKey{}).(string)
+		return Identity{UserID: user}, nil
+	}})
+	s.AddReceivingMiddleware(func(next mcp.MethodHandler) mcp.MethodHandler {
+		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+			return next(context.WithValue(ctx, userKey{}, "auth-user"), method, req)
+		}
+	})
+	addRaw(s, "ok", func(context.Context, *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		return &mcp.CallToolResult{}, nil
+	})
+	if _, err := connect(t, s, "").CallTool(context.Background(), &mcp.CallToolParams{Name: "ok"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.Flush(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if e := sink.snapshot()[0]; e.UserID == nil || *e.UserID != "auth-user" {
+		t.Fatal(e)
+	}
+}
+
 func TestMiddlewareTransport(t *testing.T) {
 	for _, tc := range []struct {
 		configured string

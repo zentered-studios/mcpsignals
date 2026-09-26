@@ -58,8 +58,8 @@ type Handle struct {
 
 // Instrument adds supported receiving middleware without changing tool handlers
 // or registration APIs. Existing and subsequently registered tools are observed.
-// Call once per server, before serving clients. Middleware added later wraps
-// this one, so ResolveIdentity cannot see context values it adds.
+// Call once per server, before serving clients. Middleware added earlier runs
+// inside this one, so ResolveIdentity cannot see context values it adds.
 func Instrument(server *mcp.Server, o Options) (*Handle, error) {
 	if server == nil || o.ServerName == "" {
 		return nil, errors.New("mcpsignals: server and server name are required")

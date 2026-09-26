@@ -63,7 +63,7 @@ import (
 )
 ```
 
-`Instrument` returns the same server in `telemetry.Server`. Call it **once per
+`Instrument` attaches to the server you pass and returns a telemetry handle. Call it **once per
 server**, before connecting clients. It observes tools registered both before
 and after instrumentation. The SDK's receiving middleware chain is the supported
 extension point; no handlers are replaced. Each `AddReceivingMiddleware` call

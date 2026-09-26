@@ -54,7 +54,6 @@ type Options struct {
 
 // Handle owns the telemetry lifecycle, not the MCP server or its sinks.
 type Handle struct {
-	Server  *mcp.Server
 	buffer  *EventBuffer
 	options Options
 }
@@ -76,7 +75,7 @@ func Instrument(server *mcp.Server, o Options) (*Handle, error) {
 	if err != nil {
 		return nil, err
 	}
-	h := &Handle{Server: server, buffer: b, options: o}
+	h := &Handle{buffer: b, options: o}
 	server.AddReceivingMiddleware(h.middleware)
 	return h, nil
 }

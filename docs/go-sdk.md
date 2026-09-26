@@ -73,9 +73,11 @@ No placeholders claim these deferred features are implemented.
 
 ## Publishing
 
-**Nothing in this change publishes the module or modifies the existing npm/PyPI
-release workflow.** The proposed first Go version is **v0.1.0**, independent of
-Node/Python's version. Root `vX.Y.Z` tags do not version this subdirectory module.
+**Nothing in this change publishes the module.** The proposed first Go version
+is **v0.1.0**, independent of Node/Python's version. Root `vX.Y.Z` tags do not
+version this subdirectory module. Use the `go` commit scope for Go-only changes:
+`.releaserc.json` gives scope `go` no root release, so `feat(go)` or `fix(go)`
+never publishes npm/PyPI packages that did not change.
 
 What is needed from the maintainer:
 

@@ -1,11 +1,11 @@
 # Event schema
 
-This is the contract both the Node.js and Python packages implement. If
+This is the contract the Node.js, Python, and Go packages implement. If
 you are adding a sink or reading raw rows out of a warehouse, this file is
 the source of truth for field names, types, and semantics.
 
 There is one event type, `tool_call`. Do not add a second without a
-documented reason - every event type is a table both language packages have
+documented reason - every event type is a table all language packages have
 to fill in identically forever.
 
 A sink receives a batch of events. Each event carries an `event_type`
@@ -43,7 +43,7 @@ One row per tool invocation.
 | `response_bytes` | integer | no | `byteLength` of the serialized tool result. 0 when the call was answered with a JSON-RPC error. |
 | `arguments` | json | yes | The tool call's arguments. Null unless argument capture is explicitly enabled. Subject to redaction - see the redaction section of the top-level README. |
 | `intent` | string | yes | The calling agent's stated reason for the call. Only present when intent capture is enabled for this tool. Truncated to 2000 chars. |
-| `transport` | string | yes | `stdio` or `http`. Both packages default to `stdio` when there is no HTTP request context, so neither emits null today; the column stays nullable for future transports. |
+| `transport` | string | yes | `stdio` or `http`. All packages default to `stdio` when there is no HTTP request context, so none emits null today; the column stays nullable for future transports. Go detects HTTP from SDK request headers and takes an explicit `Transport` for legacy SSE, which exposes none. |
 | `protocol_version` | string | yes | The MCP protocol revision the call was served on, e.g. `2025-11-25` or `2026-07-28`: from the request's `io.modelcontextprotocol/protocolVersion` `_meta` key on 2026-07-28, otherwise the version negotiated in `initialize`. Truncated to 128 chars. |
 | `request_id` | string | yes | The JSON-RPC request `id`, as a string. Unique per in-flight request on one connection, not globally. Truncated to 128 chars. |
 | `trace_id` | string | yes | The 32-hex-char trace id of the W3C `traceparent` the client sent in the request `_meta`. Null when there was none or it was malformed. |
@@ -52,6 +52,15 @@ One row per tool invocation.
 | `error_code` | integer | yes | The JSON-RPC error code, when the call was answered with a JSON-RPC error rather than a result (e.g. `-32602` for an unknown tool in the TypeScript SDK). Null for every result, `isError` ones included. Python records null for an exception whose code depends on the transport. |
 | `read_only_hint` | boolean | yes | The tool's `readOnlyHint` annotation. Null when the tool does not declare it; the spec default is false. Self-declared by the server, not verified. Python on a low-level `Server` reads both hints from the `tools/list` results it has answered, so they are null until a client lists the tools. |
 | `destructive_hint` | boolean | yes | The tool's `destructiveHint` annotation. Null when the tool does not declare it; the spec default is true, meaningful only when `readOnlyHint` is false. |
+
+### Go middleware boundary
+
+Go records raw argument bytes exposed by the official SDK (0 when absent) and
+JSON-serialized results at the receiving-middleware boundary. SDK-added response
+annotations and JSON-RPC framing are excluded; these fields are not wire byte
+counts. Serialization failure records 0. Go caps caller-controlled tool/client
+names and error messages by Unicode characters, using the limits above. Empty
+optional strings are null. Go's `agent_id` and `intent` are currently always null.
 
 ### `error_kind` is declared by the server or guessed from the message
 
@@ -74,14 +83,16 @@ The values:
 A server that already knows why a call failed records it directly:
 
 - `instrument()` tool results: set `_meta["mcpsignals/error_kind"]` on the
-  `isError` result, e.g. `"auth_required"`. Both packages export the key as
-  `ERROR_KIND_META_KEY`. The key is ignored on a successful result. An
+  `isError` result, e.g. `"auth_required"`. Node/Python export the key as
+  `ERROR_KIND_META_KEY`. Go exports it as `ErrorKindMetaKey`, set in
+  `CallToolResult.Meta`. The key is ignored on a successful result. An
   unknown value falls back to the heuristic below. The client receives the
   result unchanged, `_meta` included.
 - Events pushed to `EventBuffer` directly: set `error_kind` on the event.
 
-Both packages export the valid values as `ERROR_KINDS` and the membership
-check as `isErrorKind` / `is_error_kind`.
+Node/Python export the valid values as `ERROR_KINDS` and the membership
+check as `isErrorKind` / `is_error_kind`. Go exports typed `ErrorKind` constants,
+`IsErrorKind`, `ClassifyError`, and `ErrorKindMetaKey` for the same values/key.
 
 #### The heuristic
 

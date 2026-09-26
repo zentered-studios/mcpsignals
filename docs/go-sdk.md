@@ -81,13 +81,16 @@ Go has no registry: a `packages/go/vX.Y.Z` Git tag publishes the module, and
 `proxy.golang.org` fetches it on first request. No token or registry account is
 needed. The repository must stay publicly readable.
 
-The release job in `.github/workflows/release.yml` pushes `packages/go/vX.Y.Z`
-at the same commit as each root `vX.Y.Z` tag. Go-scoped commits (`feat(go)`,
+`.github/workflows/release.yml` runs the Go suite before `semantic-release`,
+like the Node suite. After a release, the `go-publish` job waits for approval
+on the `go-publish` environment, like `npm-publish` and `pypi`. It then pushes
+`packages/go/vX.Y.Z` at the root tag's commit and checks that the version
+resolves on `proxy.golang.org`. Go-scoped commits (`feat(go)`,
 `fix(go)`, `perf(go)`) cut a root release like any other scope, so a Go-only fix
 also bumps the npm and PyPI versions.
 
 Go puts major versions 2 and up in the import path. The module path ends in
-`/v2`, and the release job fails before tagging if the release major does not
+`/v2`, and `go-publish` fails before tagging if the release major does not
 match that suffix. A major release (v3) therefore needs the `go.mod` module
 path, the example import and the docs changed to `/v3` in the same release.
 

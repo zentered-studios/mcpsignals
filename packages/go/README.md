@@ -66,10 +66,12 @@ import (
 ```
 
 `Instrument` returns the same server in `telemetry.Server`. Call it **once per
-server**, after other receiving middleware and before connecting clients. It
-observes tools registered both before and after instrumentation. The SDK's
-receiving middleware chain is the supported extension point; no handlers are
-replaced. Install it last to observe errors from other middleware too.
+server**, before connecting clients. It observes tools registered both before
+and after instrumentation. The SDK's receiving middleware chain is the supported
+extension point; no handlers are replaced. Each `AddReceivingMiddleware` call
+wraps the existing chain. Install mcpsignals last to observe errors from other
+middleware too. Install it first if `ResolveIdentity` reads context values that
+other receiving middleware adds.
 
 Supply the server's actual advertised name/version: the SDK keeps its
 `Implementation` private. The library returns the exact handler result/error
@@ -137,8 +139,12 @@ handler input. Its output is serialized immediately. Errors, panics, nil output,
 or invalid/unserializable output record `arguments: null`, never raw fallback.
 
 `ResolveIdentity func(context.Context, mcpsignals.CallContext) (mcpsignals.Identity, error)`
-is the **only** source of `user_id` and `org_id`. Use application-verified identity
-from the context, not untrusted tool arguments/client names. Failure or panic
+is the **only** source of `user_id` and `org_id`. Use application-verified identity,
+not untrusted tool arguments/client names. With the SDK's `auth.RequireBearerToken`,
+read `CallContext.TokenInfo` (for example `TokenInfo.UserID`). `CallContext.Header`
+holds a copy of the HTTP request headers. The resolver cannot see context values
+added by receiving middleware installed after `Instrument`, because later
+middleware wraps earlier middleware. Failure or panic
 records null identity. Both callbacks run on the request goroutine, must be
 fast/nonblocking and concurrency-safe, and must not mutate shared configuration.
 The library does not log callback error text, which might contain secrets.

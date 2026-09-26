@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"strings"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -23,6 +25,11 @@ type CallContext struct {
 	ClientName    string
 	ClientVersion string
 	Transport     string
+	// TokenInfo is this request's verified bearer token, set by the SDK's
+	// auth.RequireBearerToken on streamable HTTP. Nil otherwise. Read-only.
+	TokenInfo *auth.TokenInfo
+	// Header is a copy of this request's HTTP headers, nil for other transports.
+	Header http.Header
 }
 
 // Options configures instrumentation. Supply the same name/version passed to
@@ -49,7 +56,8 @@ type Handle struct {
 
 // Instrument adds supported receiving middleware without changing tool handlers
 // or registration APIs. Existing and subsequently registered tools are observed.
-// Call once per server, after other receiving middleware, before serving clients.
+// Call once per server, before serving clients. Middleware added later wraps
+// this one, so ResolveIdentity cannot see context values it adds.
 func Instrument(server *mcp.Server, o Options) (*Handle, error) {
 	if server == nil || o.ServerName == "" {
 		return nil, errors.New("mcpsignals: server and server name are required")
@@ -100,8 +108,14 @@ func (h *Handle) prepare(ctx context.Context, req *mcp.CallToolRequest) (e ToolC
 	defer func() { _ = recover() }()
 	e.Arguments = captureArguments(req.Params.Arguments, h.options.CaptureArguments, h.options.Redaction)
 	c := CallContext{Transport: h.options.Transport}
-	if req.Extra != nil && req.Extra.Header != nil {
-		c.Transport = "http"
+	if req.Extra != nil {
+		c.TokenInfo = req.Extra.TokenInfo
+		if req.Extra.Header != nil {
+			c.Transport = "http"
+			if h.options.ResolveIdentity != nil {
+				c.Header = req.Extra.Header.Clone()
+			}
+		}
 	}
 	if req.Session != nil {
 		c.SessionID = req.Session.ID()

@@ -63,6 +63,14 @@ def search(query: str) -> str:
     ...
 ```
 
+**Go**
+
+Use the official Go SDK with `mcpsignals.Instrument(server, options)`; no tool
+handler changes are needed. See the [installation and usage guide](packages/go/README.md)
+and [runnable stdio example](packages/go/examples/stdio/main.go). The Go module
+currently includes console/custom sinks; warehouse sinks and intent capture are
+deferred. The first Go release has not yet been published.
+
 Every tool call now writes a row - timestamp, tool name, duration,
 success/failure, byte sizes - to wherever `sinks` points. See
 [Sinks](#sinks) to send those rows to Postgres, BigQuery, or your
@@ -70,17 +78,20 @@ OpenTelemetry collector instead.
 
 ## Compatibility
 
-|  | Node.js | Python |
-|---|---|---|
-| Install | `npm install mcpsignals` | `pip install mcpsignals` |
-| Runtime | Node.js 20+ | Python 3.10+ |
-| MCP SDK | `@modelcontextprotocol/server` v2 (peer dep, with `zod` v4) | `mcp` v2 |
-| Instruments | `McpServer` | `MCPServer` and the low-level `Server` |
+|  | Node.js | Python | Go |
+|---|---|---|---|
+| Install | `npm install mcpsignals` | `pip install mcpsignals` | [Go installation](packages/go/README.md#install) (not yet released) |
+| Runtime | Node.js 20+ | Python 3.10+ | Go 1.25.0+ |
+| MCP SDK | `@modelcontextprotocol/server` v2 (peer dep, with `zod` v4) | `mcp` v2 | Official `go-sdk/mcp` v1.8.0 |
+| Instruments | `McpServer` | `MCPServer` and the low-level `Server` | `*mcp.Server` receiving middleware |
+| Built-in sinks | Console, Postgres, BigQuery, OTLP, D1 | Console, Postgres, BigQuery, OTLP | Console (stderr by default); custom sink interface |
+| Intent capture | Yes | Yes | Deferred |
 
-Both packages write the same event contract, so a Node.js server and a
-Python server can share tables and a query on `__type` (see
-[Argument capture](#argument-capture-is-opt-in-and-redacted-by-default))
-matches rows from either.
+All three packages write the same event contract, so their servers can share
+warehouse tables and queries on `__type` (see
+[Argument capture](#argument-capture-is-opt-in-and-redacted-by-default)).
+The sink, intent-capture, and lifecycle examples below target Node/Python; see the
+[Go guide](packages/go/README.md) for Go options and feature differences.
 
 ## Why this exists instead of a hosted analytics product
 

@@ -1,11 +1,11 @@
 # Event schema
 
-This is the contract both the Node.js and Python packages implement. If
+This is the contract the Node.js, Python, and Go packages implement. If
 you are adding a sink or reading raw rows out of a warehouse, this file is
 the source of truth for field names, types, and semantics.
 
 There is one event type, `tool_call`. Do not add a second without a
-documented reason - every event type is a table both language packages have
+documented reason - every event type is a table all language packages have
 to fill in identically forever.
 
 A sink receives a batch of events. Each event carries an `event_type`
@@ -31,19 +31,28 @@ One row per tool invocation.
 | `tool_name` | string | no | Truncated to 128 chars when it comes from the `tools/call` request rather than the registration. |
 | `session_id` | string | yes | Groups calls into one task. Only present where the transport exposes a session concept. Truncated to 128 chars when it comes from intent capture. |
 | `agent_id` | string | yes | Distinguishes parallel agents sharing a session. Only present if the host or intent-capture supplies one. Truncated to 128 chars when it comes from intent capture. |
-| `client_name` | string | yes | From the MCP `initialize` handshake. Truncated to 128 chars. |
-| `client_version` | string | yes | From the MCP `initialize` handshake. Truncated to 128 chars. |
+| `client_name` | string | yes | From the MCP `initialize` handshake or SDK-exposed per-request client metadata. Truncated to 128 chars. |
+| `client_version` | string | yes | From the MCP `initialize` handshake or SDK-exposed per-request client metadata. Truncated to 128 chars. |
 | `user_id` | string | yes | The host application supplies this. The library never invents or infers it. |
 | `org_id` | string | yes | Same as `user_id`: host-supplied only. |
 | `duration_ms` | integer | no | Wall time from call start to response, including any handler-internal await. |
-| `success` | boolean | no | Ground truth. Derived directly from the tool result's `isError` flag, nothing else. |
+| `success` | boolean | no | Ground truth. Derived from the tool result's `isError` flag; a thrown/returned handler or SDK error without a tool result is also a failure. |
 | `error_kind` | enum | yes | One of `not_found`, `empty`, `validation`, `auth_required`, `payment_required`, `internal`. Declared by the server or guessed from `error_message`; see "`error_kind` is declared by the server or guessed from the message" below. Null when `success` is true. |
 | `error_message` | string | yes | Truncated to 2000 chars. Null when `success` is true. |
 | `request_bytes` | integer | no | `byteLength` of the serialized tool arguments as sent to the handler, before injected intent-capture parameters are stripped. |
 | `response_bytes` | integer | no | `byteLength` of the serialized tool result. |
 | `arguments` | json | yes | The tool call's arguments. Null unless argument capture is explicitly enabled. Subject to redaction - see the redaction section of the top-level README. |
 | `intent` | string | yes | The calling agent's stated reason for the call. Only present when intent capture is enabled for this tool. Truncated to 2000 chars. |
-| `transport` | string | yes | `stdio` or `http`. Both packages default to `stdio` when there is no HTTP request context, so neither emits null today; the column stays nullable for future transports. |
+| `transport` | string | yes | `stdio` or `http`. Node/Python default to `stdio` without HTTP context. Go detects HTTP from SDK request headers; other transports are null unless the application explicitly supplies `stdio` or `http`. |
+
+### Go middleware boundary
+
+Go records raw argument bytes exposed by the official SDK (0 when absent) and
+JSON-serialized results at the receiving-middleware boundary. SDK-added response
+annotations and JSON-RPC framing are excluded; these fields are not wire byte
+counts. Serialization failure records 0. Go caps caller-controlled tool/client
+names and error messages by Unicode characters, using the limits above. Empty
+optional strings are null. Go's `agent_id` and `intent` are currently always null.
 
 ### `error_kind` is declared by the server or guessed from the message
 
@@ -72,8 +81,9 @@ A server that already knows why a call failed records it directly:
   result unchanged, `_meta` included.
 - Events pushed to `EventBuffer` directly: set `error_kind` on the event.
 
-Both packages export the valid values as `ERROR_KINDS` and the membership
-check as `isErrorKind` / `is_error_kind`.
+Node/Python export the valid values as `ERROR_KINDS` and the membership
+check as `isErrorKind` / `is_error_kind`. Go exports typed `ErrorKind` constants,
+`IsErrorKind`, `ClassifyError`, and `ErrorKindMetaKey` for the same values/key.
 
 #### The heuristic
 

@@ -155,6 +155,13 @@ func resolveIdentity(ctx context.Context, f func(context.Context, CallContext) (
 }
 
 func (h *Handle) record(e ToolCallEvent, result mcp.Result, callErr error) {
+	setOutcome(&e, result, callErr)
+	h.buffer.Push(e)
+}
+
+// setOutcome fills the outcome fields. A panic keeps the fields set so far,
+// so the call is still recorded.
+func setOutcome(e *ToolCallEvent, result mcp.Result, callErr error) {
 	defer func() { _ = recover() }()
 	e.Success = callErr == nil
 	var message string
@@ -190,7 +197,6 @@ func (h *Handle) record(e ToolCallEvent, result mcp.Result, callErr error) {
 			e.ErrorKind = &kind
 		}
 	}
-	h.buffer.Push(e)
 }
 
 func valueOrEmpty(p *string) string {

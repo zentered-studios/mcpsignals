@@ -133,25 +133,14 @@ func (h *Handle) prepare(ctx context.Context, req *mcp.CallToolRequest) (e ToolC
 	e.SessionID = optional(c.SessionID)
 	e.ClientName = bounded(c.ClientName, 128)
 	e.ClientVersion = bounded(c.ClientVersion, 128)
-	identity := resolveIdentity(ctx, h.options.ResolveIdentity, c)
-	e.UserID = optional(identity.UserID)
-	e.OrgID = optional(identity.OrgID)
-	return e
-}
-
-func resolveIdentity(ctx context.Context, f func(context.Context, CallContext) (Identity, error), c CallContext) (identity Identity) {
-	defer func() {
-		if recover() != nil {
-			identity = Identity{}
-		}
-	}()
-	if f != nil {
-		value, err := f(ctx, c)
-		if err == nil {
-			return value
+	// A resolver error or panic leaves user_id and org_id null.
+	if h.options.ResolveIdentity != nil {
+		if identity, err := h.options.ResolveIdentity(ctx, c); err == nil {
+			e.UserID = optional(identity.UserID)
+			e.OrgID = optional(identity.OrgID)
 		}
 	}
-	return Identity{}
+	return e
 }
 
 func (h *Handle) record(e ToolCallEvent, result mcp.Result, callErr error) {
@@ -167,7 +156,7 @@ func setOutcome(e *ToolCallEvent, result mcp.Result, callErr error) {
 	var message string
 	var declared string
 	if callErr != nil {
-		message = safeErrorMessage(callErr)
+		message = callErr.Error()
 	} else if r, ok := result.(*mcp.CallToolResult); ok && r != nil {
 		e.ResponseBytes = serializedSize(r)
 		e.Success = !r.IsError
@@ -188,8 +177,9 @@ func setOutcome(e *ToolCallEvent, result mcp.Result, callErr error) {
 		}
 	}
 	if !e.Success {
-		e.ErrorMessage = bounded(message, 2000)
-		kind := ClassifyError(valueOrEmpty(e.ErrorMessage))
+		message = truncate(message, 2000)
+		e.ErrorMessage = optional(message)
+		kind := ClassifyError(message)
 		if IsErrorKind(declared) {
 			kind = ErrorKind(declared)
 		}
@@ -199,16 +189,6 @@ func setOutcome(e *ToolCallEvent, result mcp.Result, callErr error) {
 	}
 }
 
-func valueOrEmpty(p *string) string {
-	if p == nil {
-		return ""
-	}
-	return *p
-}
-func safeErrorMessage(err error) (message string) {
-	defer func() { _ = recover() }()
-	return err.Error()
-}
 func serializedSize(v any) (size int) {
 	defer func() { _ = recover() }()
 	data, err := json.Marshal(v)

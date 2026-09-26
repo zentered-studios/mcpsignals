@@ -43,6 +43,9 @@ type EventBuffer struct {
 
 var errUninitialized = errors.New("mcpsignals: EventBuffer must be created with NewEventBuffer")
 
+// initialized reports whether NewEventBuffer built b; it sets every channel.
+func (b *EventBuffer) initialized() bool { return b.done != nil }
+
 // NewEventBuffer starts one worker unless Manual is set. No network calls are
 // made until events are flushed. Call Close after stopping/draining the server.
 func NewEventBuffer(o BufferOptions) (*EventBuffer, error) {
@@ -103,7 +106,7 @@ func (b *EventBuffer) Stats() BufferStats { b.mu.Lock(); defer b.mu.Unlock(); re
 // After dequeue the batch is attempted once, even on cancellation or failure.
 // Sinks must honor ctx; Go cannot interrupt arbitrary user code.
 func (b *EventBuffer) Flush(ctx context.Context) error {
-	if b.gate == nil {
+	if !b.initialized() {
 		return errUninitialized
 	}
 	if err := ctx.Err(); err != nil {
@@ -151,7 +154,7 @@ func writeSink(ctx context.Context, sink Sink, batch []ToolCallEvent) (err error
 // after a timeout. Stop and drain MCP requests before calling Close.
 // Sink ownership remains with the application; Close does not close sinks.
 func (b *EventBuffer) Close(ctx context.Context) error {
-	if b.stop == nil {
+	if !b.initialized() {
 		return errUninitialized
 	}
 	b.mu.Lock()

@@ -144,8 +144,9 @@ not untrusted tool arguments/client names. With the SDK's `auth.RequireBearerTok
 read `CallContext.TokenInfo` (for example `TokenInfo.UserID`). `CallContext.Header`
 holds a copy of the HTTP request headers. The resolver cannot see context values
 added by receiving middleware installed before `Instrument`: that middleware
-runs inside mcpsignals. Failure or panic
-records null identity. Both callbacks run on the request goroutine after the
+runs inside mcpsignals. The resolver's context keeps the request's values but
+not its cancellation, so canceled and timed-out calls still resolve. Failure
+or panic records null identity. Both callbacks run on the request goroutine after the
 handler returns, so they delay the response but not the handler or `ts`. They
 must be fast/nonblocking and concurrency-safe, and must not mutate shared
 configuration.

@@ -112,8 +112,10 @@ func (h *Handle) middleware(next mcp.MethodHandler) mcp.MethodHandler {
 			return result, err
 		}
 		// Identity and redaction run after the handler, as in Node/Python, so a
-		// slow resolver neither delays the handler nor shifts ts.
-		event := h.prepare(ctx, call, name, args)
+		// slow resolver neither delays the handler nor shifts ts. The resolver
+		// keeps the request's values but not its cancellation, so a canceled or
+		// timed-out call still gets its identity.
+		event := h.prepare(context.WithoutCancel(ctx), call, name, args)
 		// Millisecond precision, like Node's toISOString.
 		event.TS = start.UTC().Truncate(time.Millisecond)
 		event.DurationMS = durationMS(duration)

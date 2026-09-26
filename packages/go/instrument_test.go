@@ -402,6 +402,24 @@ func TestInputRequiredLegIsNotRecorded(t *testing.T) {
 
 type userKey struct{}
 
+func TestResolverRunsForCanceledCall(t *testing.T) {
+	sink := new(memorySink)
+	h := &Handle{buffer: newBuffer(t, BufferOptions{Manual: true, Sinks: []Sink{sink}}), options: Options{ServerName: "test", ResolveIdentity: func(ctx context.Context, _ CallContext) (Identity, error) {
+		user, _ := ctx.Value(userKey{}).(string)
+		return Identity{UserID: user}, ctx.Err()
+	}}}
+	ctx, cancel := context.WithCancel(context.WithValue(context.Background(), userKey{}, "u1"))
+	req := &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{Name: "test"}}
+	next := func(context.Context, string, mcp.Request) (mcp.Result, error) { cancel(); return nil, context.Canceled }
+	_, _ = h.middleware(next)(ctx, "tools/call", req)
+	if err := h.Flush(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if e := sink.snapshot()[0]; e.UserID == nil || *e.UserID != "u1" {
+		t.Fatalf("identity lost on cancellation: %v", e.UserID)
+	}
+}
+
 func TestResolverSeesContextFromMiddlewareAddedLater(t *testing.T) {
 	s := mcp.NewServer(&mcp.Implementation{Name: "test-server"}, nil)
 	h, sink := instrumentTest(t, s, Options{ResolveIdentity: func(ctx context.Context, _ CallContext) (Identity, error) {

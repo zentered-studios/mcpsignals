@@ -1,7 +1,6 @@
 package mcpsignals
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -247,13 +246,30 @@ type byteCounter int
 func (c *byteCounter) Write(p []byte) (int, error) { *c += byteCounter(len(p)); return len(p), nil }
 
 // compactSize is the length of args without insignificant whitespace, like
-// Node's JSON.stringify of the parsed arguments. Invalid JSON counts as sent.
+// Node's JSON.stringify of the parsed arguments. It counts in one pass without
+// allocating. The SDK has already decoded args, so they are valid JSON.
 func compactSize(args json.RawMessage) int {
-	var b bytes.Buffer
-	if json.Compact(&b, args) != nil {
-		return len(args)
+	n := 0
+	inString, escaped := false, false
+	for _, c := range args {
+		switch {
+		case inString:
+			switch {
+			case escaped:
+				escaped = false
+			case c == '\\':
+				escaped = true
+			case c == '"':
+				inString = false
+			}
+		case c == ' ' || c == '\t' || c == '\n' || c == '\r':
+			continue
+		case c == '"':
+			inString = true
+		}
+		n++
 	}
-	return b.Len()
+	return n
 }
 
 // serializedSize is the length of v encoded like Node's JSON.stringify, with

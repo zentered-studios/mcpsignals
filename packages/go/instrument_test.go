@@ -1,6 +1,7 @@
 package mcpsignals
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -350,10 +351,20 @@ func TestSerializedSizeMatchesJSONStringify(t *testing.T) {
 
 func TestRequestBytesIgnoreWhitespace(t *testing.T) {
 	// Node measures JSON.stringify of the parsed arguments, which is compact.
-	for raw, want := range map[string]int{"{\n  \"q\": \"a b\"\n}": len(`{"q":"a b"}`), "": 0, "null": 4, "{bad": 4} {
-		if got := compactSize(json.RawMessage(raw)); got != want {
-			t.Fatalf("compactSize(%q) = %d, want %d", raw, got, want)
+	for _, raw := range []string{"{\n  \"q\": \"a b\"\n}", "", "null", ` { "a\" b\\" : [ 1 , "x\ty" ] } `, "{\"k\":\"\\\\\"}"} {
+		var want bytes.Buffer
+		if raw != "" {
+			if err := json.Compact(&want, []byte(raw)); err != nil {
+				t.Fatal(err)
+			}
 		}
+		if got := compactSize(json.RawMessage(raw)); got != want.Len() {
+			t.Fatalf("compactSize(%q) = %d, want %d", raw, got, want.Len())
+		}
+	}
+	large := json.RawMessage(`{"q": "` + strings.Repeat("x ", 1<<16) + `"}`)
+	if allocs := testing.AllocsPerRun(10, func() { compactSize(large) }); allocs != 0 {
+		t.Fatalf("compactSize allocates %v times", allocs)
 	}
 	sink := new(memorySink)
 	h := &Handle{buffer: newBuffer(t, BufferOptions{Manual: true, Sinks: []Sink{sink}}), options: Options{ServerName: "test"}}

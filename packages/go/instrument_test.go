@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -514,6 +515,59 @@ func TestHandlerPanicIsRecordedAndReraised(t *testing.T) {
 	events := sink.snapshot()
 	if len(events) != 1 || events[0].Success || *events[0].ErrorMessage != "storage not found" || *events[0].ErrorKind != NotFound {
 		t.Fatalf("panic not recorded: %+v", events)
+	}
+}
+
+func TestHandlerPanicSurvivesTelemetryPanic(t *testing.T) {
+	// A nil buffer makes the recorder itself panic.
+	h := &Handle{options: Options{ServerName: "test"}}
+	req := &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{Name: "test"}}
+	value := errors.New("handler failed")
+	defer func() {
+		if recover() != value {
+			t.Fatal("telemetry replaced the handler panic")
+		}
+	}()
+	_, _ = h.middleware(func(context.Context, string, mcp.Request) (mcp.Result, error) { panic(value) })(context.Background(), "tools/call", req)
+}
+
+func TestHandlerPanicEdgeCases(t *testing.T) {
+	sink := new(memorySink)
+	h := &Handle{buffer: newBuffer(t, BufferOptions{Manual: true, Sinks: []Sink{sink}}), options: Options{ServerName: "test"}}
+	req := &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{Name: "test"}}
+	// runtime.Goexit is not a failure and records nothing.
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = h.middleware(func(context.Context, string, mcp.Request) (mcp.Result, error) { runtime.Goexit(); return nil, nil })(context.Background(), "tools/call", req)
+	}()
+	<-done
+	// panic(nil) arrives as *runtime.PanicNilError (Go 1.21+) and is recorded.
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			defer func() {
+				if _, ok := recover().(*runtime.PanicNilError); !ok {
+					t.Error("panic(nil) not re-raised")
+				}
+			}()
+			_, _ = h.middleware(func(context.Context, string, mcp.Request) (mcp.Result, error) { panic(nil) })(context.Background(), "tools/call", req)
+		}()
+	}
+	wg.Wait()
+	if err := h.Flush(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	events := sink.snapshot()
+	if len(events) != 8 {
+		t.Fatalf("events: %d, want 8", len(events))
+	}
+	for _, e := range events {
+		if e.Success || e.ErrorMessage == nil {
+			t.Fatalf("bad panic event: %+v", e)
+		}
 	}
 }
 

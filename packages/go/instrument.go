@@ -106,7 +106,11 @@ func (h *Handle) middleware(next mcp.MethodHandler) mcp.MethodHandler {
 			// A handler panic is recorded as a failure, as Node records a throw,
 			// and re-raised with the same value. runtime.Goexit is not recorded.
 			if v := recover(); v != nil {
-				h.finish(ctx, call, name, args, start, time.Since(start), nil, errors.New(fmt.Sprint(v)))
+				func() {
+					// A telemetry panic must not replace the handler's.
+					defer func() { _ = recover() }()
+					h.finish(ctx, call, name, args, start, time.Since(start), nil, errors.New(fmt.Sprint(v)))
+				}()
 				panic(v)
 			}
 		}()

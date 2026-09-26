@@ -21,8 +21,9 @@ dependencies: only install the one for the sink you use.
 
 ## Usage
 
-`instrument()` wraps `registerTool` itself, so it must be called **right
-after constructing your server and before registering any tools**.
+`instrument()` wraps `registerTool` and the `tools/call` handler McpServer
+installs on the first registration, so it must be called **right after
+constructing your server and before registering any tools**.
 
 ```ts
 import { McpServer } from '@modelcontextprotocol/server';

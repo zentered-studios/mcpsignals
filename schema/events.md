@@ -36,11 +36,11 @@ One row per tool invocation.
 | `user_id` | string | yes | The host application supplies this. The library never invents or infers it. |
 | `org_id` | string | yes | Same as `user_id`: host-supplied only. |
 | `duration_ms` | integer | no | Wall time from call start to response, including any handler-internal await. |
-| `success` | boolean | no | Ground truth. Derived directly from the tool result's `isError` flag, nothing else. |
+| `success` | boolean | no | Ground truth: what the client received. False for a result with `isError: true` and for a `tools/call` answered with a JSON-RPC error (unknown or disabled tool). Nothing else is consulted. |
 | `error_kind` | enum | yes | One of `not_found`, `empty`, `validation`, `auth_required`, `payment_required`, `internal`. Declared by the server or guessed from `error_message`; see "`error_kind` is declared by the server or guessed from the message" below. Null when `success` is true. |
 | `error_message` | string | yes | Truncated to 2000 chars. Null when `success` is true. |
-| `request_bytes` | integer | no | `byteLength` of the serialized tool arguments as sent to the handler, before injected intent-capture parameters are stripped. |
-| `response_bytes` | integer | no | `byteLength` of the serialized tool result. |
+| `request_bytes` | integer | no | `byteLength` of the serialized `arguments` of the `tools/call` request as the client sent them, before injected intent-capture parameters are stripped. |
+| `response_bytes` | integer | no | `byteLength` of the serialized tool result. 0 when the call was answered with a JSON-RPC error. |
 | `arguments` | json | yes | The tool call's arguments. Null unless argument capture is explicitly enabled. Subject to redaction - see the redaction section of the top-level README. |
 | `intent` | string | yes | The calling agent's stated reason for the call. Only present when intent capture is enabled for this tool. Truncated to 2000 chars. |
 | `transport` | string | yes | `stdio` or `http`. Both packages default to `stdio` when there is no HTTP request context, so neither emits null today; the column stays nullable for future transports. |

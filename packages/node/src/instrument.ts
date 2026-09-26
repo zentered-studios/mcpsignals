@@ -67,6 +67,32 @@ interface ToolResultLike {
   _meta?: Record<string, unknown>;
 }
 
+interface ToolsCallRequest {
+  params?: { name?: unknown; arguments?: unknown };
+}
+
+type ToolsCallHandler = (request: ToolsCallRequest, ctx: ToolCallContext) => unknown;
+
+/** The intent-capture values a call carried, and its arguments without them. */
+interface IntentFields {
+  clean: Record<string, unknown>;
+  session_id: string | null;
+  agent_id: string | null;
+  intent: string | null;
+}
+
+function extractIntentFields(args: Record<string, unknown>): IntentFields {
+  return extractAndStripIntent(args);
+}
+
+function noIntentFields(args: Record<string, unknown>): IntentFields {
+  return { clean: args, session_id: null, agent_id: null, intent: null };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 // TextEncoder rather than Buffer.byteLength: this runs on every tool call,
 // and Buffer only exists on Cloudflare Workers behind the nodejs_compat flag.
 const encoder = new TextEncoder();
@@ -113,7 +139,14 @@ function extractErrorMessage(result: ToolResultLike): string | null {
  * Wraps an `McpServer` so every tool registered through it (after this call)
  * records a `tool_call` event. This is the library's one required call —
  * call it immediately after constructing the server and before registering
- * any tools, since it works by wrapping `registerTool` itself.
+ * any tools, since it works by wrapping `registerTool` and the `tools/call`
+ * handler McpServer installs on its first registration.
+ *
+ * Every `tools/call` the server answers is recorded, including ones that
+ * never reach a tool callback: an unknown or disabled tool, and arguments
+ * that fail the tool's `inputSchema`. `success` follows the result the
+ * client receives, so a result McpServer rejects against `outputSchema` is
+ * recorded as failed.
  *
  * Nothing the library does around a tool call can change what the client
  * receives. The real handler always runs, its return value is passed through
@@ -165,6 +198,16 @@ export function instrument(server: McpServer, options: InstrumentOptions): Instr
     }
   };
 
+  /**
+   * What the tool callback saw, handed from the `registerTool` wrapper to the
+   * `tools/call` recorder below. Keyed by the request's `ctx`: McpServer
+   * passes its `tools/call` handler's `ctx` straight through to the tool
+   * callback, so both layers see the same object.
+   */
+  const handlerCalls = new WeakMap<object, IntentFields>();
+  /** Registered tool name -> whether intent capture injected its schema. */
+  const registeredTools = new Map<string, boolean>();
+
   const originalRegisterTool = server.registerTool.bind(server);
 
   server.registerTool = ((
@@ -175,166 +218,17 @@ export function instrument(server: McpServer, options: InstrumentOptions): Instr
     const intentEnabled = isIntentCaptureEnabled(options.intentCapture, name);
     const originalInputSchema = config.inputSchema;
     const canInject = intentEnabled && schemaSupportsInjection(originalInputSchema);
+    registeredTools.set(name, canInject);
 
     const wrappedConfig = canInject
       ? { ...config, inputSchema: injectIntentSchema(originalInputSchema) }
       : config;
 
-    /**
-     * Runs one tool call with telemetry around it. `invoke` receives the args
-     * with any injected intent-capture keys stripped and must call the real
-     * handler with the arity the SDK would have used for this registration.
-     */
-    const observeCall = async (
-      args: Record<string, unknown>,
-      ctx: ToolCallContext,
-      invoke: (cleanArgs: Record<string, unknown>) => unknown
-    ) => {
-      const startedAt = new Date();
-      const start = performance.now();
-
-      // `JSON.stringify` throws on a BigInt (and on a throwing `toJSON`);
-      // an unmeasurable request is recorded as 0 bytes, never blocks the handler.
-      const requestBytes = guarded('request byte count', () => byteLength(args), 0);
-
-      let cleanArgs = args;
-      let sessionIdFromArgs: string | null = null;
-      let agentId: string | null = null;
-      let intent: string | null = null;
-      if (canInject) {
-        const extracted = extractAndStripIntent(args);
-        cleanArgs = extracted.clean;
-        sessionIdFromArgs = extracted.session_id;
-        agentId = extracted.agent_id;
-        intent = extracted.intent;
-      }
-
-      const sessionId = ctx.sessionId ?? sessionIdFromArgs ?? null;
-
-      /**
-       * Builds and pushes the event. Every caller wraps this in `guardedAsync`,
-       * so a failure anywhere in here (identity, client info, redaction, the
-       * buffer push) is logged once and the event is dropped, never surfaced
-       * to the client. Redaction and `resolveIdentity` are guarded on their
-       * own so a broken redactor or resolver still leaves an event behind,
-       * recorded with `arguments: null` / a null identity.
-       *
-       * `durationMs` is measured by the caller the moment the handler settles.
-       * `resolveIdentity` runs in here, after the handler, so its latency is
-       * outside the timed window: `duration_ms` is wall time from call start
-       * to response, per schema/events.md.
-       */
-      const push = async (
-        durationMs: number,
-        partial: Pick<ToolCallEvent, 'success' | 'error_kind' | 'error_message' | 'response_bytes'>
-      ) => {
-        // A host resolver that throws or rejects records a null identity.
-        let identity: { userId?: string; orgId?: string } = {};
-        try {
-          identity = (await options.resolveIdentity?.({ sessionId: ctx.sessionId })) ?? {};
-        } catch (error) {
-          warnOnce('resolveIdentity', error);
-        }
-        // getClientVersion() is deprecated in favor of reading client identity off the
-        // per-request `_meta` envelope, but the SDK's own deprecation note says the accessor
-        // "remains functional" and is backfilled per request on 2026-07-28-era connections too.
-        // Deliberately kept rather than reaching into the envelope's internal shape, which isn't
-        // part of this SDK's stable public surface yet.
-        //
-        // The client declares its own name/version in the `initialize` handshake, so
-        // both are caller-controlled and take the same identifier cap as the intent
-        // fields (see bounded.ts). `tool_name` needs no cap: it is the registered name.
-        const clientInfo = server.server.getClientVersion();
-        const clientName = boundedString(clientInfo?.name, MAX_IDENTIFIER_LENGTH);
-        const clientVersion = boundedString(clientInfo?.version, MAX_IDENTIFIER_LENGTH);
-        const recordedArguments = guarded(
-          'redaction',
-          () =>
-            assertSerializable(
-              applyRedaction(cleanArgs, options.redaction, options.captureArguments)
-            ),
-          null
-        );
-        buffer.push({
-          event_type: 'tool_call',
-          ts: startedAt,
-          server_name: options.serverName,
-          server_version: options.serverVersion ?? null,
-          tool_name: name,
-          session_id: sessionId,
-          agent_id: agentId,
-          client_name: clientName,
-          client_version: clientVersion,
-          user_id: identity.userId ?? null,
-          org_id: identity.orgId ?? null,
-          duration_ms: durationMs,
-          request_bytes: requestBytes,
-          arguments: recordedArguments,
-          intent,
-          transport: ctx.http ? 'http' : 'stdio',
-          ...partial
-        });
-      };
-
-      // Only the handler call itself lives in this try: a throw here is the
-      // handler's own, recorded and re-thrown unchanged. Recording happens
-      // outside it so a telemetry failure can never be mistaken for one.
-      let result: ToolResultLike;
-      try {
-        result = (await invoke(cleanArgs)) as ToolResultLike;
-      } catch (error) {
-        const durationMs = Math.round(performance.now() - start);
-        await guardedAsync(
-          'event recording',
-          async () => {
-            const message = error instanceof Error ? error.message : String(error);
-            const truncated = message.length > 2000 ? message.slice(0, 2000) : message;
-            await push(durationMs, {
-              success: false,
-              error_kind: classifyError(truncated),
-              error_message: truncated,
-              response_bytes: 0
-            });
-          },
-          undefined
-        );
-        throw error;
-      }
-
-      const durationMs = Math.round(performance.now() - start);
-      await guardedAsync(
-        'event recording',
-        async () => {
-          const responseBytes = guarded('response byte count', () => byteLength(result), 0);
-          if (result?.isError) {
-            const errorMessage = extractErrorMessage(result);
-            // A kind the handler declared wins; an unknown value falls back to the heuristic.
-            // Guarded on its own so a throwing `_meta` costs only the declared kind, not the event.
-            const declaredKind = guarded(
-              'declared error kind',
-              // `_meta` is the MCP protocol's field name.
-              // oxlint-disable-next-line no-underscore-dangle
-              () => result._meta?.[ERROR_KIND_META_KEY],
-              undefined
-            );
-            await push(durationMs, {
-              success: false,
-              error_kind: isErrorKind(declaredKind) ? declaredKind : classifyError(errorMessage),
-              error_message: errorMessage,
-              response_bytes: responseBytes
-            });
-          } else {
-            await push(durationMs, {
-              success: true,
-              error_kind: null,
-              error_message: null,
-              response_bytes: responseBytes
-            });
-          }
-        },
-        undefined
-      );
-      return result;
+    /** Strips injected intent-capture keys and leaves them for the recorder. */
+    const prepare = (args: Record<string, unknown>, ctx: ToolCallContext) => {
+      const fields = canInject ? extractIntentFields(args) : noIntentFields(args);
+      handlerCalls.set(ctx, fields);
+      return fields.clean;
     };
 
     // The SDK's `createToolExecutor` picks the handler arity from the registered
@@ -346,14 +240,14 @@ export function instrument(server: McpServer, options: InstrumentOptions): Instr
     // injected a schema into a registration that had none.
     //
     // On the schema-less path the SDK does not validate or pass the arguments,
-    // so the wrapper records the call as an empty-arguments call (`args = {}`)
-    // rather than reaching into the raw request for a payload the handler
-    // never sees. `request_bytes` therefore matches a schema-backed tool
-    // called with `{}`.
+    // so `arguments` is recorded as an empty-arguments call (`{}`) rather than
+    // a payload the handler never sees.
     const wrappedCb = wrappedConfig.inputSchema
-      ? async (args: Record<string, unknown>, ctx: ToolCallContext) =>
-          observeCall(args, ctx, cleanArgs => cb(cleanArgs, ctx))
-      : async (ctx: ToolCallContext) => observeCall({}, ctx, () => cb(ctx));
+      ? async (args: Record<string, unknown>, ctx: ToolCallContext) => cb(prepare(args, ctx), ctx)
+      : async (ctx: ToolCallContext) => {
+          prepare({}, ctx);
+          return cb(ctx);
+        };
 
     // The real `registerTool` overloads are exact per input/output schema shape; a
     // generic wrapper can't preserve that precision through a monkey-patch, so we
@@ -364,6 +258,186 @@ export function instrument(server: McpServer, options: InstrumentOptions): Instr
       wrappedCb
     );
   }) as typeof server.registerTool;
+
+  /**
+   * Runs one `tools/call` request with telemetry around it. This wraps the
+   * handler McpServer registers, not the tool callback, so it sees what the
+   * client sees: an unknown or disabled tool (a JSON-RPC error), an
+   * input-schema failure (an `isError` result, callback never runs), and an
+   * output-schema failure (an `isError` result, callback already returned
+   * success). A tool callback that throws reaches this layer as McpServer's
+   * `isError` result carrying the error message.
+   */
+  const observeToolsCall = async (
+    request: ToolsCallRequest,
+    ctx: ToolCallContext,
+    handler: ToolsCallHandler
+  ) => {
+    const startedAt = new Date();
+    const start = performance.now();
+
+    const params = request?.params ?? {};
+    const rawName = typeof params.name === 'string' ? params.name : '';
+    const rawArgs = params.arguments ?? {};
+    // `JSON.stringify` throws on a BigInt (and on a throwing `toJSON`);
+    // an unmeasurable request is recorded as 0 bytes, never blocks the handler.
+    const requestBytes = guarded('request byte count', () => byteLength(rawArgs), 0);
+
+    /**
+     * Builds and pushes the event. Every caller wraps this in `guardedAsync`,
+     * so a failure anywhere in here (identity, client info, redaction, the
+     * buffer push) is logged once and the event is dropped, never surfaced
+     * to the client. Redaction and `resolveIdentity` are guarded on their
+     * own so a broken redactor or resolver still leaves an event behind,
+     * recorded with `arguments: null` / a null identity.
+     *
+     * `durationMs` is measured by the caller the moment the handler settles.
+     * `resolveIdentity` runs in here, after the handler, so its latency is
+     * outside the timed window: `duration_ms` is wall time from call start
+     * to response, per schema/events.md.
+     */
+    const push = async (
+      durationMs: number,
+      partial: Pick<ToolCallEvent, 'success' | 'error_kind' | 'error_message' | 'response_bytes'>
+    ) => {
+      // The callback's view when it ran. When it never ran, read the raw
+      // arguments the way it would have, so a rejected call still records intent.
+      const rawRecord = isRecord(rawArgs) ? rawArgs : {};
+      const fields =
+        handlerCalls.get(ctx) ??
+        (registeredTools.get(rawName) ? extractIntentFields(rawRecord) : noIntentFields(rawRecord));
+
+      // A host resolver that throws or rejects records a null identity.
+      let identity: { userId?: string; orgId?: string } = {};
+      try {
+        identity = (await options.resolveIdentity?.({ sessionId: ctx.sessionId })) ?? {};
+      } catch (error) {
+        warnOnce('resolveIdentity', error);
+      }
+      // getClientVersion() is deprecated in favor of reading client identity off the
+      // per-request `_meta` envelope, but the SDK's own deprecation note says the accessor
+      // "remains functional" and is backfilled per request on 2026-07-28-era connections too.
+      // Deliberately kept rather than reaching into the envelope's internal shape, which isn't
+      // part of this SDK's stable public surface yet.
+      //
+      // The client declares its own name/version in the `initialize` handshake, so
+      // both are caller-controlled and take the same identifier cap as the intent
+      // fields (see bounded.ts).
+      const clientInfo = server.server.getClientVersion();
+      const clientName = boundedString(clientInfo?.name, MAX_IDENTIFIER_LENGTH);
+      const clientVersion = boundedString(clientInfo?.version, MAX_IDENTIFIER_LENGTH);
+      const recordedArguments = guarded(
+        'redaction',
+        () =>
+          assertSerializable(
+            applyRedaction(fields.clean, options.redaction, options.captureArguments)
+          ),
+        null
+      );
+      buffer.push({
+        event_type: 'tool_call',
+        ts: startedAt,
+        server_name: options.serverName,
+        server_version: options.serverVersion ?? null,
+        // A registered name is the server's own. Any other name came from the
+        // client, so it takes the identifier cap.
+        tool_name: registeredTools.has(rawName)
+          ? rawName
+          : (boundedString(rawName, MAX_IDENTIFIER_LENGTH) ?? ''),
+        session_id: ctx.sessionId ?? fields.session_id,
+        agent_id: fields.agent_id,
+        client_name: clientName,
+        client_version: clientVersion,
+        user_id: identity.userId ?? null,
+        org_id: identity.orgId ?? null,
+        duration_ms: durationMs,
+        request_bytes: requestBytes,
+        arguments: recordedArguments,
+        intent: fields.intent,
+        transport: ctx.http ? 'http' : 'stdio',
+        ...partial
+      });
+    };
+
+    // Only the handler call itself lives in this try: a throw here is a
+    // protocol error the client receives as a JSON-RPC error, recorded and
+    // re-thrown unchanged. Recording happens outside it so a telemetry
+    // failure can never be mistaken for one.
+    let result: ToolResultLike;
+    try {
+      result = (await handler(request, ctx)) as ToolResultLike;
+    } catch (error) {
+      const durationMs = Math.round(performance.now() - start);
+      await guardedAsync(
+        'event recording',
+        async () => {
+          const message = error instanceof Error ? error.message : String(error);
+          const truncated = message.length > 2000 ? message.slice(0, 2000) : message;
+          await push(durationMs, {
+            success: false,
+            error_kind: classifyError(truncated),
+            error_message: truncated,
+            response_bytes: 0
+          });
+        },
+        undefined
+      );
+      throw error;
+    }
+
+    const durationMs = Math.round(performance.now() - start);
+    await guardedAsync(
+      'event recording',
+      async () => {
+        const responseBytes = guarded('response byte count', () => byteLength(result), 0);
+        if (result?.isError) {
+          const errorMessage = extractErrorMessage(result);
+          // A kind the handler declared wins; an unknown value falls back to the heuristic.
+          // Guarded on its own so a throwing `_meta` costs only the declared kind, not the event.
+          const declaredKind = guarded(
+            'declared error kind',
+            // `_meta` is the MCP protocol's field name.
+            // oxlint-disable-next-line no-underscore-dangle
+            () => result._meta?.[ERROR_KIND_META_KEY],
+            undefined
+          );
+          await push(durationMs, {
+            success: false,
+            error_kind: isErrorKind(declaredKind) ? declaredKind : classifyError(errorMessage),
+            error_message: errorMessage,
+            response_bytes: responseBytes
+          });
+        } else {
+          await push(durationMs, {
+            success: true,
+            error_kind: null,
+            error_message: null,
+            response_bytes: responseBytes
+          });
+        }
+      },
+      undefined
+    );
+    return result;
+  };
+
+  // McpServer installs its `tools/call` handler through the public
+  // `Server.setRequestHandler` the first time a tool is registered, which is
+  // after this call. Wrap that one registration; every other method passes
+  // through untouched.
+  const lowLevel = server.server;
+  const originalSetRequestHandler = lowLevel.setRequestHandler.bind(lowLevel) as (
+    ...args: unknown[]
+  ) => unknown;
+  lowLevel.setRequestHandler = ((method: unknown, ...rest: unknown[]) => {
+    const [handler] = rest;
+    if (method !== 'tools/call' || rest.length !== 1 || typeof handler !== 'function') {
+      return originalSetRequestHandler(method, ...rest);
+    }
+    return originalSetRequestHandler(method, (request: ToolsCallRequest, ctx: ToolCallContext) =>
+      observeToolsCall(request, ctx, handler as ToolsCallHandler)
+    );
+  }) as typeof lowLevel.setRequestHandler;
 
   return {
     server,

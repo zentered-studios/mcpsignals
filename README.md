@@ -63,6 +63,14 @@ def search(query: str) -> str:
     ...
 ```
 
+**Go**
+
+Use the official Go SDK with `mcpsignals.Instrument(server, options)`; no tool
+handler changes are needed. See the [installation and usage guide](packages/go/README.md)
+and [runnable stdio example](packages/go/examples/stdio/main.go). The Go module
+currently includes console/custom sinks; warehouse sinks and intent capture are
+deferred. The first Go release has not yet been published.
+
 Every tool call now writes a row - timestamp, tool name, duration,
 success/failure, byte sizes - to wherever `sinks` points. See
 [Sinks](#sinks) to send those rows to Postgres, BigQuery, or your
@@ -70,17 +78,20 @@ OpenTelemetry collector instead.
 
 ## Compatibility
 
-|  | Node.js | Python |
-|---|---|---|
-| Install | `npm install mcpsignals` | `pip install mcpsignals` |
-| Runtime | Node.js 20+ | Python 3.10+ |
-| MCP SDK | `@modelcontextprotocol/server` v2 (peer dep, with `zod` v4) | `mcp` v2 |
-| Instruments | `McpServer` | `MCPServer` and the low-level `Server` |
+|  | Node.js | Python | Go |
+|---|---|---|---|
+| Install | `npm install mcpsignals` | `pip install mcpsignals` | [Go installation](packages/go/README.md#install) (not yet released) |
+| Runtime | Node.js 20+ | Python 3.10+ | Go 1.25.0+ |
+| MCP SDK | `@modelcontextprotocol/server` v2 (peer dep, with `zod` v4) | `mcp` v2 | Official `go-sdk/mcp` v1.8.0 |
+| Instruments | `McpServer` | `MCPServer` and the low-level `Server` | `*mcp.Server` receiving middleware |
+| Built-in sinks | Console, Postgres, BigQuery, OTLP, D1 | Console, Postgres, BigQuery, OTLP | Console (stderr by default); custom sink interface |
+| Intent capture | Yes | Yes | Deferred |
 
-Both packages write the same event contract, so a Node.js server and a
-Python server can share tables and a query on `__type` (see
-[Argument capture](#argument-capture-is-opt-in-and-redacted-by-default))
-matches rows from either.
+All three packages write the same event contract, so their servers can share
+warehouse tables and queries on `__type` (see
+[Argument capture](#argument-capture-is-opt-in-and-redacted-by-default)).
+The sink, intent-capture, and lifecycle examples below target Node/Python; see the
+[Go guide](packages/go/README.md) for Go options and feature differences.
 
 ## Why this exists instead of a hosted analytics product
 
@@ -105,11 +116,11 @@ mean "record everything":
 - Capture (`captureArguments` / `capture_arguments`) is **off by default**:
   the `arguments` field is always null and no argument reaches a sink.
 - Turned on with no further configuration, you get **argument keys and value
-  types only**. Each value becomes a `{"__type": ...}` marker. Both packages
+  types only**. Each value becomes a `{"__type": ...}` marker. All three packages
   use the same JSON type names (`string`, `number`, `boolean`, `object`,
   `array`, `null`), so `{"query": "jane@example.com", "limit": 10}` is
   recorded as `{"query": {"__type": "string"}, "limit": {"__type": "number"}}`
-  by either package.
+  by any of them.
 - To record real values, explicitly allowlist which keys are safe
   (`redaction.allow`). `redaction.deny` forces a key back to type-only even
   if `allow` also lists it.
@@ -193,7 +204,8 @@ Optional, off by default. When enabled, the library adds `session_id`,
 `agent_id`, and an `intent` field ("why are you calling this tool") to the
 schemas your server advertises, then strips all three back out before your
 handler sees them - it receives exactly what it would have without this
-library, and both packages have tests proving it.
+library, and the Node and Python packages have tests proving it. The Go
+package does not support intent capture yet.
 
 Node takes `intentCapture`. `true` enables it for every tool. The object
 form enables only the tools named with `true`; every unlisted tool stays
@@ -219,7 +231,7 @@ or invent a plausible-sounding reason. Turn it on only if "why did the agent
 call this" is a question you need answered.
 
 A tool that declares its own `session_id`, `agent_id`, or `intent`
-parameter loses it when intent capture is on for that tool. Both packages
+parameter loses it when intent capture is on for that tool. Node and Python
 strip those three keys from the arguments before the handler runs. In Node
 the handler never sees the value, and the library's field definition
 replaces the tool's own in the advertised schema. In Python a required
@@ -269,7 +281,8 @@ The shapes differ. Node receives `{ sessionId }` and returns
 request context and returns a `(user_id, org_id)` tuple. Both may be sync or
 async.
 
-Three things hold in both packages:
+Three things hold in all three packages, except that Go's `ResolveIdentity`
+does not log failures; see the [Go guide](packages/go/README.md#privacy).
 
 - **It runs after your handler**, so a slow resolver never lands in
   `duration_ms`. `duration_ms` is wall time from call start to response, per
@@ -290,15 +303,19 @@ rely on intent-capture session ids.
 
 ## Buffering and flush timing
 
-Events are batched in memory, not written one per call. Both packages take
-the same two knobs:
+Events are batched in memory, not written one per call. Node and Python take
+the same two knobs. Go has the same defaults, but its manual mode disables the
+size trigger too. Go has no shutdown hook: call `Close` on the handle before
+exit, or buffered events are lost. See the
+[Go guide](packages/go/README.md#lifecycle-and-delivery).
 
 | | Node.js | Python | Default |
 |---|---|---|---|
 | Flush after N events | `bufferSize` | `buffer_size` | 20 |
 | Flush every N | `flushIntervalMs` | `flush_interval_s` | 5000 ms / 5.0 s |
 
-Whichever comes first wins, plus a best-effort flush on shutdown. Passing
+Whichever comes first wins, plus a best-effort flush on shutdown in Node and
+Python. Passing
 `null` / `None` as the interval switches to manual mode, which drops both
 the timer and the shutdown hook and leaves every flush to you. That is the
 right setting on request-scoped runtimes, covered in the

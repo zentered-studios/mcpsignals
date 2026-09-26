@@ -89,10 +89,14 @@ func optional(s string) *string {
 }
 func bounded(s string, n int) *string { return optional(truncate(s, n)) }
 
+// truncate keeps the first n runes without copying the whole string.
 func truncate(s string, n int) string {
-	r := []rune(s)
-	if len(r) > n {
-		return string(r[:n])
+	count := 0
+	for i := range s {
+		if count == n {
+			return s[:i]
+		}
+		count++
 	}
 	return s
 }

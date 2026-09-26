@@ -109,6 +109,15 @@ func TestErrorClassificationAndBounds(t *testing.T) {
 	if got := bounded(strings.Repeat("界", 200), 128); len([]rune(*got)) != 128 {
 		t.Fatal("incorrect Unicode bound")
 	}
+	for _, tc := range []struct{ in, want string }{{"abc", "abc"}, {"abcd", "abc"}, {"界界界", "界界界"}, {"a界bc", "a界b"}} {
+		if got := truncate(tc.in, 3); got != tc.want {
+			t.Fatalf("truncate(%q) = %q", tc.in, got)
+		}
+	}
+	big := strings.Repeat("界", 1<<20)
+	if allocs := testing.AllocsPerRun(5, func() { _ = truncate(big, 2000) }); allocs != 0 {
+		t.Fatalf("truncate allocated %v times", allocs)
+	}
 	if bounded("", 128) != nil {
 		t.Fatal("empty string must be null")
 	}

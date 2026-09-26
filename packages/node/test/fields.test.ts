@@ -119,6 +119,49 @@ test('tool hints follow RegisteredTool.update()', async () => {
   assert.equal(events[0].destructive_hint, true);
 });
 
+test('a rejected duplicate registerTool keeps the first registration', async () => {
+  const { server, events, flush } = createInstrumentedServer();
+  echoTool(server, { readOnlyHint: true });
+  assert.throws(() => echoTool(server, { readOnlyHint: false }), /already registered/);
+  const client = await connectClient(server);
+
+  await client.callTool({ name: 'echo', arguments: { q: 'hi' } });
+
+  await flush();
+  assert.equal(events[0].success, true);
+  assert.equal(events[0].read_only_hint, true);
+});
+
+test('tool hints follow a rename through RegisteredTool.update({ name })', async () => {
+  const { server, events, flush } = createInstrumentedServer();
+  const tool = echoTool(server, { readOnlyHint: true });
+  const client = await connectClient(server);
+  tool.update({ name: 'renamed' });
+
+  await client.callTool({ name: 'renamed', arguments: { q: 'hi' } });
+  await assert.rejects(client.callTool({ name: 'echo', arguments: { q: 'hi' } }), /not found/);
+
+  await flush();
+  assert.equal(events[0].tool_name, 'renamed');
+  assert.equal(events[0].read_only_hint, true);
+  assert.equal(events[1].tool_name, 'echo');
+  assert.equal(events[1].success, false);
+  assert.equal(events[1].read_only_hint, null);
+});
+
+test('a removed tool records null hints', async () => {
+  const { server, events, flush } = createInstrumentedServer();
+  const tool = echoTool(server, { readOnlyHint: true });
+  const client = await connectClient(server);
+  tool.remove();
+
+  await assert.rejects(client.callTool({ name: 'echo', arguments: { q: 'hi' } }), /not found/);
+
+  await flush();
+  assert.equal(events[0].success, false);
+  assert.equal(events[0].read_only_hint, null);
+});
+
 async function modernToolsCall(register: (server: McpServer) => void) {
   const events: AnyEvent[] = [];
   let flush!: () => Promise<void>;

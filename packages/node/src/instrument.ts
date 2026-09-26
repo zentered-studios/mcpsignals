@@ -75,9 +75,10 @@ interface ToolResultLike {
   _meta?: Record<string, unknown>;
 }
 
-/** The part of McpServer's `RegisteredTool` this file reads. Its `annotations` change on `update()`. */
+/** The part of McpServer's `RegisteredTool` this file uses. Its `annotations` change on `update()`. */
 interface RegisteredToolLike {
   annotations?: { readOnlyHint?: unknown; destructiveHint?: unknown };
+  update?: (updates: { name?: unknown }) => unknown;
 }
 
 const PROTOCOL_VERSION_META_KEY = 'io.modelcontextprotocol/protocolVersion';
@@ -231,9 +232,6 @@ export function instrument(server: McpServer, options: InstrumentOptions): Instr
     const intentEnabled = isIntentCaptureEnabled(options.intentCapture, name);
     const originalInputSchema = config.inputSchema;
     const canInject = intentEnabled && schemaSupportsInjection(originalInputSchema);
-    const registration: { canInject: boolean; tool?: RegisteredToolLike } = { canInject };
-    registeredTools.set(name, registration);
-
     const wrappedConfig = canInject
       ? { ...config, inputSchema: injectIntentSchema(originalInputSchema) }
       : config;
@@ -270,9 +268,33 @@ export function instrument(server: McpServer, options: InstrumentOptions): Instr
       name,
       wrappedConfig,
       wrappedCb
-    );
-    // Read at call time, not now, so `RegisteredTool.update({ annotations })` is honored.
-    registration.tool = tool as RegisteredToolLike;
+    ) as RegisteredToolLike;
+    // Only after the SDK accepted it: a duplicate name throws above and must
+    // not replace the first registration. `tool` is read at call time, not
+    // now, so `RegisteredTool.update({ annotations })` is honored.
+    const registration = { canInject, tool };
+    registeredTools.set(name, registration);
+
+    // Follow `update({ name })` the way the SDK does: a new name moves the
+    // registration, a null or empty one removes it. `remove()` goes through
+    // `update`, so this covers it too.
+    let currentName = name;
+    const originalUpdate = tool.update;
+    if (typeof originalUpdate === 'function') {
+      tool.update = (updates: { name?: unknown }) => {
+        const result = originalUpdate(updates);
+        if (updates?.name !== undefined && updates.name !== currentName) {
+          if (registeredTools.get(currentName) === registration) {
+            registeredTools.delete(currentName);
+          }
+          if (typeof updates.name === 'string' && updates.name) {
+            registeredTools.set(updates.name, registration);
+            currentName = updates.name;
+          }
+        }
+        return result;
+      };
+    }
     return tool;
   }) as typeof server.registerTool;
 

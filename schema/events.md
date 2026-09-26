@@ -50,7 +50,7 @@ One row per tool invocation.
 | `parent_span_id` | string | yes | The 16-hex-char span id from the same `traceparent`: the caller's span, which this call's span is a child of. |
 | `result_type` | enum | yes | `complete` or `input_required`. `input_required` is a 2026-07-28 multi-round-trip round: the server asked the client for input and the client will call again. On a 2025-era connection the TypeScript SDK runs those rounds inside one call, which is recorded once with its final result. Null when the call was answered with a JSON-RPC error. |
 | `error_code` | integer | yes | The JSON-RPC error code, when the call was answered with a JSON-RPC error rather than a result (e.g. `-32602` for an unknown tool in the TypeScript SDK). Null for every result, `isError` ones included. Python records null for an exception whose code depends on the transport. |
-| `read_only_hint` | boolean | yes | The tool's `readOnlyHint` annotation. Null when the tool does not declare it; the spec default is false. Self-declared by the server, not verified. |
+| `read_only_hint` | boolean | yes | The tool's `readOnlyHint` annotation. Null when the tool does not declare it; the spec default is false. Self-declared by the server, not verified. Python on a low-level `Server` reads both hints from the `tools/list` results it has answered, so they are null until a client lists the tools. |
 | `destructive_hint` | boolean | yes | The tool's `destructiveHint` annotation. Null when the tool does not declare it; the spec default is true, meaningful only when `readOnlyHint` is false. |
 
 ### `error_kind` is declared by the server or guessed from the message

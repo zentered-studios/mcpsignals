@@ -76,6 +76,53 @@ async def test_tool_hints_come_from_the_annotations_and_are_null_when_undeclared
 
 
 @pytest.mark.asyncio
+async def test_unknown_tool_names_list_the_tools_once_not_per_call():
+    server, sink = build_server()
+
+    @server.tool()
+    def echo(q: str) -> str:
+        return q
+
+    calls = 0
+    original_list_tools = server.list_tools
+
+    async def counting_list_tools():
+        nonlocal calls
+        calls += 1
+        return await original_list_tools()
+
+    server.list_tools = counting_list_tools
+
+    async with Client(server) as client:
+        for _ in range(3):
+            await client.call_tool("missing", {})
+        await asyncio.sleep(0.05)
+
+    assert len(sink.events) == 3
+    assert calls == 1
+
+
+@pytest.mark.asyncio
+async def test_tool_hints_follow_a_tool_removed_and_added_again():
+    server, sink = build_server()
+
+    def lookup(q: str) -> str:
+        return q
+
+    server.add_tool(lookup, annotations=ToolAnnotations(read_only_hint=True))
+
+    async with Client(server) as client:
+        await client.call_tool("lookup", {"q": "hi"})
+        server.remove_tool("lookup")
+        server.add_tool(lookup, annotations=ToolAnnotations(read_only_hint=False))
+        await client.call_tool("lookup", {"q": "hi"})
+        await asyncio.sleep(0.05)
+
+    assert sink.events[0].read_only_hint is True
+    assert sink.events[1].read_only_hint is False
+
+
+@pytest.mark.asyncio
 async def test_an_unknown_tool_is_an_is_error_result_with_no_code():
     # Unlike the TypeScript SDK, MCPServer answers an unknown tool with an
     # isError result rather than a JSON-RPC error, so there is no code.

@@ -213,8 +213,13 @@ def instrument(
 
     # Tool name -> (read_only_hint, destructive_hint). Middleware sees only the
     # request, not the registration, so hints come from the `tools/list`
-    # results passing through, or from `MCPServer.list_tools()` on a miss.
+    # results passing through. On `MCPServer`, the first miss also lists the
+    # server's tools once; a name still missing after that is unknown and is
+    # not listed again. `add_tool` and `remove_tool` clear the cache, so a tool
+    # re-added with other annotations is read fresh. On a low-level `Server`
+    # the hints are null until the client calls `tools/list`.
     tool_hints: dict[str, ToolHints] = {}
+    listed = False
 
     def _remember_hints(tools: Any) -> None:
         for tool in tools or []:
@@ -223,9 +228,28 @@ def instrument(
                 tool_hints[name] = hints
 
     async def _hints_for(name: str) -> ToolHints:
-        if name not in tool_hints and isinstance(server, MCPServer):
+        nonlocal listed
+        if name not in tool_hints and not listed and isinstance(server, MCPServer):
+            listed = True
             _remember_hints(await server.list_tools())
         return tool_hints.get(name, (None, None))
+
+    def _forget_hints() -> None:
+        nonlocal listed
+        tool_hints.clear()
+        listed = False
+
+    if isinstance(server, MCPServer):
+        # `@server.tool()` registers through `add_tool`, so this sees every change.
+        for method_name in ("add_tool", "remove_tool"):
+            original = getattr(server, method_name)
+
+            def _invalidating(*args: Any, _original: Any = original, **kwargs: Any) -> Any:
+                result = _original(*args, **kwargs)
+                _forget_hints()
+                return result
+
+            setattr(server, method_name, _invalidating)
 
     async def _mcpsignals_middleware(ctx, call_next):
         if ctx.method == "tools/list":
@@ -338,8 +362,9 @@ def instrument(
             duration_ms = int((time.perf_counter() - start) * 1000)
 
             # Runs after the handler so its latency never lands in
-            # `duration_ms`. A host resolver that raises records a null
-            # identity; the handler's result is already on its way back.
+            # `duration_ms`. It still runs before the result is returned, so
+            # the client waits for it. A host resolver that raises records a
+            # null identity.
             user_id: str | None = None
             org_id: str | None = None
             if resolve_identity is not None:
@@ -353,7 +378,8 @@ def instrument(
                     _warn_once("resolve_identity", exc)
                     user_id, org_id = None, None
 
-            # After the timed window too: on a miss this lists the server's tools.
+            # After the timed window too. The first miss after a registration
+            # change lists the server's tools, and the client waits for that one.
             try:
                 read_only_hint, destructive_hint = await _hints_for(raw_tool_name)
             except Exception as exc:  # noqa: BLE001 - a hint lookup never costs the event

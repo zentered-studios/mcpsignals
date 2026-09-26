@@ -135,8 +135,8 @@ func (h *Handle) middleware(next mcp.MethodHandler) mcp.MethodHandler {
 func (h *Handle) finish(ctx context.Context, call *mcp.CallToolRequest, name string, args json.RawMessage, start time.Time, duration time.Duration, result mcp.Result, err error) {
 	// Identity and redaction run after the handler, as in Node/Python, so a
 	// slow resolver neither delays the handler nor shifts ts. The resolver
-	// keeps the request's values but not its cancellation, so a canceled or
-	// timed-out call still gets its identity.
+	// keeps the request's values but not its cancellation or deadline, so a
+	// canceled or timed-out call still gets its identity.
 	event := h.prepare(context.WithoutCancel(ctx), call, name, args)
 	// Millisecond precision, like Node's toISOString.
 	event.TS = start.UTC().Truncate(time.Millisecond)

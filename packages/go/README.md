@@ -147,7 +147,8 @@ read `CallContext.TokenInfo` (for example `TokenInfo.UserID`). `CallContext.Head
 holds a copy of the HTTP request headers. The resolver cannot see context values
 added by receiving middleware installed before `Instrument`: that middleware
 runs inside mcpsignals. The resolver's context keeps the request's values but
-not its cancellation, so canceled and timed-out calls still resolve. Failure
+not its cancellation or deadline, so canceled and timed-out calls still
+resolve. Nothing bounds the resolver: set your own timeout on any lookup. Failure
 or panic records null identity. Both callbacks run on the request goroutine after the
 handler returns, so they delay the response but not the handler or `ts`. They
 must be fast/nonblocking and concurrency-safe, and must not mutate shared
@@ -155,7 +156,9 @@ configuration.
 The library does not log callback error text, which might contain secrets.
 
 Error messages are still captured (up to 2000 Unicode characters). Argument
-redaction does not scrub error messages or explicitly allowed values.
+redaction does not scrub error messages or explicitly allowed values. A handler
+panic records `fmt.Sprint` of the panic value, so do not panic with values that
+hold secrets.
 
 ## Event and metadata contract
 

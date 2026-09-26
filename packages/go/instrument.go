@@ -42,8 +42,10 @@ type Options struct {
 	CaptureArguments bool
 	Redaction        Redaction
 	ResolveIdentity  func(context.Context, CallContext) (Identity, error)
-	// Transport may be "stdio" or "http" when the application knows the transport.
-	// Otherwise HTTP is detected from RequestExtra.Header; other transports are null.
+	// Transport is "stdio", "http", or empty. A request with HTTP headers
+	// (streamable HTTP) always records "http". Otherwise this value is used, and
+	// empty means "stdio", as in Node/Python. Set "http" for the legacy SSE
+	// transport, which exposes no headers to middleware.
 	Transport string
 }
 
@@ -116,6 +118,9 @@ func (h *Handle) prepare(ctx context.Context, req *mcp.CallToolRequest) (e ToolC
 				c.Header = req.Extra.Header.Clone()
 			}
 		}
+	}
+	if c.Transport == "" {
+		c.Transport = "stdio"
 	}
 	if req.Session != nil {
 		c.SessionID = req.Session.ID()

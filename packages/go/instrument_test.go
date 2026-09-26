@@ -104,7 +104,7 @@ func TestSDKToolCalls(t *testing.T) {
 				t.Fatalf("events: %d", len(events))
 			}
 			e := events[0]
-			if e.ServerName != "test-server" || *e.ServerVersion != "1.0" || e.ToolName != "echo" || !e.Success || e.Arguments != nil || e.ErrorKind != nil || e.ErrorMessage != nil || e.Transport != nil || e.SessionID != nil || e.UserID != nil || len(*e.ClientName) != 128 || *e.ClientVersion != "1.2" || e.RequestBytes != len(args) || e.ResponseBytes == 0 || e.DurationMS < 0 || e.TS.Location() != time.UTC {
+			if e.ServerName != "test-server" || *e.ServerVersion != "1.0" || e.ToolName != "echo" || !e.Success || e.Arguments != nil || e.ErrorKind != nil || e.ErrorMessage != nil || e.Transport == nil || *e.Transport != "stdio" || e.SessionID != nil || e.UserID != nil || len(*e.ClientName) != 128 || *e.ClientVersion != "1.2" || e.RequestBytes != len(args) || e.ResponseBytes == 0 || e.DurationMS < 0 || e.TS.Location() != time.UTC {
 				t.Fatalf("bad event: %+v", e)
 			}
 			if *events[1].ErrorKind != AuthRequired || *events[1].ErrorMessage != "Sign in." {
@@ -301,6 +301,36 @@ func TestSDKBearerTokenReachesResolver(t *testing.T) {
 	e := sink.snapshot()[0]
 	if e.UserID == nil || *e.UserID != "user-abc" || e.OrgID == nil || *e.OrgID != "org-1" {
 		t.Fatal(e)
+	}
+}
+
+func TestMiddlewareTransport(t *testing.T) {
+	for _, tc := range []struct {
+		configured string
+		header     http.Header
+		want       string
+	}{
+		{"", nil, "stdio"},
+		{"http", nil, "http"},
+		{"stdio", http.Header{}, "http"},
+	} {
+		sink := new(memorySink)
+		b := newBuffer(t, BufferOptions{Manual: true, Sinks: []Sink{sink}})
+		h := &Handle{buffer: b, options: Options{ServerName: "test", Transport: tc.configured}}
+		req := &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{Name: "test"}}
+		if tc.header != nil {
+			req.Extra = &mcp.RequestExtra{Header: tc.header}
+		}
+		ok := func(context.Context, string, mcp.Request) (mcp.Result, error) { return &mcp.CallToolResult{}, nil }
+		if _, err := h.middleware(ok)(context.Background(), "tools/call", req); err != nil {
+			t.Fatal(err)
+		}
+		if err := h.Flush(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		if got := sink.snapshot()[0].Transport; got == nil || *got != tc.want {
+			t.Fatalf("configured %q: got %v, want %s", tc.configured, got, tc.want)
+		}
 	}
 }
 

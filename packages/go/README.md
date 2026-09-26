@@ -163,6 +163,7 @@ See [`schema/events.md`](../../schema/events.md) and the
   Multi-round-trip continuations are separate calls, not aggregated sessions.
 - `ts` is UTC at handler-chain entry; `duration_ms` measures that chain using
   Go's monotonic clock, excluding redaction/identity resolution and sink writes.
+  It rounds to the nearest millisecond, like Node.
 - `success` follows `CallToolResult.IsError`; an SDK/handler error returned without
   a result is also a failure, with `response_bytes: 0`.
 - `request_bytes` counts raw JSON argument bytes exposed to middleware (0 when

@@ -330,6 +330,14 @@ func TestSlowResolverDoesNotDelayHandlerOrTimestamp(t *testing.T) {
 	}
 }
 
+func TestDurationRoundsToNearestMillisecond(t *testing.T) {
+	for d, want := range map[time.Duration]int64{400 * time.Microsecond: 0, 900 * time.Microsecond: 1, 1500 * time.Microsecond: 2, 2499 * time.Microsecond: 2} {
+		if got := durationMS(d); got != want {
+			t.Fatalf("durationMS(%v) = %d, want %d", d, got, want)
+		}
+	}
+}
+
 type userKey struct{}
 
 func TestResolverSeesContextFromMiddlewareAddedLater(t *testing.T) {

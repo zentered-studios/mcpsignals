@@ -103,7 +103,7 @@ func (h *Handle) middleware(next mcp.MethodHandler) mcp.MethodHandler {
 		// slow resolver neither delays the handler nor shifts ts.
 		event := h.prepare(ctx, call, name, args)
 		event.TS = start.UTC()
-		event.DurationMS = duration.Milliseconds()
+		event.DurationMS = durationMS(duration)
 		h.record(event, result, err)
 		return result, err
 	}
@@ -193,6 +193,10 @@ func setOutcome(e *ToolCallEvent, result mcp.Result, callErr error) {
 		}
 	}
 }
+
+// durationMS rounds to the nearest millisecond, like Node's Math.round, so
+// rows from every package agree for sub-millisecond calls.
+func durationMS(d time.Duration) int64 { return d.Round(time.Millisecond).Milliseconds() }
 
 func serializedSize(v any) (size int) {
 	defer func() { _ = recover() }()

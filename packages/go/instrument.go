@@ -93,22 +93,27 @@ func (h *Handle) middleware(next mcp.MethodHandler) mcp.MethodHandler {
 		if method != "tools/call" || !ok || call == nil || call.Params == nil {
 			return next(ctx, method, req)
 		}
-		event := h.prepare(ctx, call)
 		start := time.Now()
-		event.TS = start.UTC()
+		// A handler may replace Params fields; record what the call arrived with.
+		name, args := call.Params.Name, call.Params.Arguments
 		// Deliberately no recovery around next: handler errors/panics belong to the SDK.
 		result, err := next(ctx, method, req)
-		event.DurationMS = time.Since(start).Milliseconds()
+		duration := time.Since(start)
+		// Identity and redaction run after the handler, as in Node/Python, so a
+		// slow resolver neither delays the handler nor shifts ts.
+		event := h.prepare(ctx, call, name, args)
+		event.TS = start.UTC()
+		event.DurationMS = duration.Milliseconds()
 		h.record(event, result, err)
 		return result, err
 	}
 }
 
-func (h *Handle) prepare(ctx context.Context, req *mcp.CallToolRequest) (e ToolCallEvent) {
-	e = ToolCallEvent{EventType: "tool_call", ServerName: h.options.ServerName, ServerVersion: optional(h.options.ServerVersion), ToolName: truncate(req.Params.Name, 128), RequestBytes: len(req.Params.Arguments)}
+func (h *Handle) prepare(ctx context.Context, req *mcp.CallToolRequest, name string, args json.RawMessage) (e ToolCallEvent) {
+	e = ToolCallEvent{EventType: "tool_call", ServerName: h.options.ServerName, ServerVersion: optional(h.options.ServerVersion), ToolName: truncate(name, 128), RequestBytes: len(args)}
 	// Telemetry never changes the invocation, even if SDK metadata access fails.
 	defer func() { _ = recover() }()
-	e.Arguments = captureArguments(req.Params.Arguments, h.options.CaptureArguments, h.options.Redaction)
+	e.Arguments = captureArguments(args, h.options.CaptureArguments, h.options.Redaction)
 	c := CallContext{Transport: h.options.Transport}
 	if req.Extra != nil {
 		c.TokenInfo = req.Extra.TokenInfo

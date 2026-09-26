@@ -304,6 +304,32 @@ func TestSDKBearerTokenReachesResolver(t *testing.T) {
 	}
 }
 
+func TestSlowResolverDoesNotDelayHandlerOrTimestamp(t *testing.T) {
+	sink := new(memorySink)
+	b := newBuffer(t, BufferOptions{Manual: true, Sinks: []Sink{sink}})
+	h := &Handle{buffer: b, options: Options{ServerName: "test", ResolveIdentity: func(context.Context, CallContext) (Identity, error) {
+		time.Sleep(50 * time.Millisecond)
+		return Identity{UserID: "u"}, nil
+	}}}
+	req := &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{Name: "test"}}
+	entered := time.Now()
+	var handlerStart time.Time
+	next := func(context.Context, string, mcp.Request) (mcp.Result, error) {
+		handlerStart = time.Now()
+		return &mcp.CallToolResult{}, nil
+	}
+	if _, err := h.middleware(next)(context.Background(), "tools/call", req); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.Flush(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	e := sink.snapshot()[0]
+	if handlerStart.Sub(entered) > 25*time.Millisecond || e.TS.Sub(entered) > 25*time.Millisecond || e.UserID == nil {
+		t.Fatalf("resolver ran before handler: handler +%v, ts +%v", handlerStart.Sub(entered), e.TS.Sub(entered))
+	}
+}
+
 type userKey struct{}
 
 func TestResolverSeesContextFromMiddlewareAddedLater(t *testing.T) {

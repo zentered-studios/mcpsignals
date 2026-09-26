@@ -31,7 +31,8 @@ Reviewed on 2026-09-26 against official SDK **v1.8.0**, commit
 - Explicit server name/version avoids reflection/private SDK fields. Transport
   defaults to `stdio` without HTTP headers, as in Node/Python. Unknown session
   data remains null. `intent`/`agent_id` remain null.
-- Snapshot captured arguments before invoking the next handler. Redactors cannot
+- Keep the raw argument bytes the call arrived with; redact them and resolve
+  identity after the handler returns, matching Node/Python. Redactors cannot
   mutate actual arguments; serialization failure fails closed. Large JSON
   integers retain precision via `json.Number`.
 - One bounded event queue and one automatic-flush worker per handle. Size/interval

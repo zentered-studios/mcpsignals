@@ -281,9 +281,8 @@ The shapes differ. Node receives `{ sessionId }` and returns
 request context and returns a `(user_id, org_id)` tuple. Both may be sync or
 async.
 
-Three things hold in Node and Python. Go's `ResolveIdentity` runs before the
-handler, outside `duration_ms`, and does not log failures; see the
-[Go guide](packages/go/README.md#privacy).
+Three things hold in all three packages, except that Go's `ResolveIdentity`
+does not log failures; see the [Go guide](packages/go/README.md#privacy).
 
 - **It runs after your handler**, so a slow resolver never lands in
   `duration_ms`. `duration_ms` is wall time from call start to response, per

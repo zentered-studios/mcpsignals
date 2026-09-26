@@ -144,8 +144,10 @@ read `CallContext.TokenInfo` (for example `TokenInfo.UserID`). `CallContext.Head
 holds a copy of the HTTP request headers. The resolver cannot see context values
 added by receiving middleware installed before `Instrument`: that middleware
 runs inside mcpsignals. Failure or panic
-records null identity. Both callbacks run on the request goroutine, must be
-fast/nonblocking and concurrency-safe, and must not mutate shared configuration.
+records null identity. Both callbacks run on the request goroutine after the
+handler returns, so they delay the response but not the handler or `ts`. They
+must be fast/nonblocking and concurrency-safe, and must not mutate shared
+configuration.
 The library does not log callback error text, which might contain secrets.
 
 Error messages are still captured (up to 2000 Unicode characters). Argument

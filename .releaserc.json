@@ -5,8 +5,7 @@
     [
       "@semantic-release/commit-analyzer",
       {
-        "preset": "conventionalcommits",
-        "releaseRules": [{ "scope": "go", "release": false }]
+        "preset": "conventionalcommits"
       }
     ],
     [
@@ -15,10 +14,6 @@
         "preset": "conventionalcommits",
         "presetConfig": {
           "types": [
-            { "type": "feat", "scope": "go", "hidden": true },
-            { "type": "fix", "scope": "go", "hidden": true },
-            { "type": "perf", "scope": "go", "hidden": true },
-            { "type": "revert", "scope": "go", "hidden": true },
             { "type": "feat", "section": "Features" },
             { "type": "fix", "section": "Bug Fixes" },
             { "type": "perf", "section": "Performance" },

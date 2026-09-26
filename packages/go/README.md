@@ -10,14 +10,13 @@ identity, or network calls at initialization.
 Requires **Go 1.25.0+**. Built and tested against **Go SDK v1.8.0**; other SDK
 versions are not yet verified. CI covers Go 1.25, 1.26, and 1.27.
 
-This module is **not yet tagged for release**. Once a Go release is published:
-
 ```sh
-go get github.com/zentered-studios/mcpsignals/packages/go@latest
+go get github.com/zentered-studios/mcpsignals/packages/go/v2@latest
 ```
 
-Until then, use `@main` instead of `@latest` to resolve a pseudo-version. To
-try it from a local checkout:
+The Go module shares its version number with the Node and Python packages. Go
+puts the major version in the import path, so the path ends in `/v2`. To try it
+from a local checkout:
 
 ```sh
 git clone https://github.com/zentered-studios/mcpsignals.git
@@ -30,8 +29,8 @@ The example waits for an MCP client on stdin. To use the local checkout from
 another module, run `go mod edit` there with an absolute path:
 
 ```sh
-go mod edit -replace github.com/zentered-studios/mcpsignals/packages/go=/absolute/path/to/mcpsignals/packages/go
-go get github.com/zentered-studios/mcpsignals/packages/go
+go mod edit -replace github.com/zentered-studios/mcpsignals/packages/go/v2=/absolute/path/to/mcpsignals/packages/go
+go get github.com/zentered-studios/mcpsignals/packages/go/v2
 ```
 
 ## Enable instrumentation
@@ -59,7 +58,7 @@ Imports:
 ```go
 import (
     "github.com/modelcontextprotocol/go-sdk/mcp"
-    mcpsignals "github.com/zentered-studios/mcpsignals/packages/go"
+    mcpsignals "github.com/zentered-studios/mcpsignals/packages/go/v2"
 )
 ```
 
@@ -240,6 +239,6 @@ go build ./...
 ```
 
 The subprocess test builds and runs the stdio example with an official SDK client.
-HTTP tests use loopback. Publishing uses an independent, directory-prefixed Git
-tag, **not npm/PyPI credentials or the root release tag**. See
-[the publishing checklist](../../docs/go-sdk.md#publishing).
+HTTP tests use loopback. The release workflow publishes this module by pushing a
+`packages/go/vX.Y.Z` tag with the same version as each root release. See
+[publishing](../../docs/go-sdk.md#publishing).

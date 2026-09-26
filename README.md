@@ -116,11 +116,11 @@ mean "record everything":
 - Capture (`captureArguments` / `capture_arguments`) is **off by default**:
   the `arguments` field is always null and no argument reaches a sink.
 - Turned on with no further configuration, you get **argument keys and value
-  types only**. Each value becomes a `{"__type": ...}` marker. Both packages
+  types only**. Each value becomes a `{"__type": ...}` marker. All three packages
   use the same JSON type names (`string`, `number`, `boolean`, `object`,
   `array`, `null`), so `{"query": "jane@example.com", "limit": 10}` is
   recorded as `{"query": {"__type": "string"}, "limit": {"__type": "number"}}`
-  by either package.
+  by any of them.
 - To record real values, explicitly allowlist which keys are safe
   (`redaction.allow`). `redaction.deny` forces a key back to type-only even
   if `allow` also lists it.
@@ -204,7 +204,8 @@ Optional, off by default. When enabled, the library adds `session_id`,
 `agent_id`, and an `intent` field ("why are you calling this tool") to the
 schemas your server advertises, then strips all three back out before your
 handler sees them - it receives exactly what it would have without this
-library, and both packages have tests proving it.
+library, and the Node and Python packages have tests proving it. The Go
+package does not support intent capture yet.
 
 Node takes `intentCapture`. `true` enables it for every tool. The object
 form enables only the tools named with `true`; every unlisted tool stays
@@ -230,7 +231,7 @@ or invent a plausible-sounding reason. Turn it on only if "why did the agent
 call this" is a question you need answered.
 
 A tool that declares its own `session_id`, `agent_id`, or `intent`
-parameter loses it when intent capture is on for that tool. Both packages
+parameter loses it when intent capture is on for that tool. Node and Python
 strip those three keys from the arguments before the handler runs. In Node
 the handler never sees the value, and the library's field definition
 replaces the tool's own in the advertised schema. In Python a required
@@ -280,7 +281,9 @@ The shapes differ. Node receives `{ sessionId }` and returns
 request context and returns a `(user_id, org_id)` tuple. Both may be sync or
 async.
 
-Three things hold in both packages:
+Three things hold in Node and Python. Go's `ResolveIdentity` runs before the
+handler, outside `duration_ms`, and does not log failures; see the
+[Go guide](packages/go/README.md#privacy).
 
 - **It runs after your handler**, so a slow resolver never lands in
   `duration_ms`. `duration_ms` is wall time from call start to response, per
@@ -301,8 +304,10 @@ rely on intent-capture session ids.
 
 ## Buffering and flush timing
 
-Events are batched in memory, not written one per call. Both packages take
-the same two knobs:
+Events are batched in memory, not written one per call. Node and Python take
+the same two knobs. Go has the same defaults, but its manual mode disables the
+size trigger too; see the
+[Go guide](packages/go/README.md#lifecycle-and-delivery).
 
 | | Node.js | Python | Default |
 |---|---|---|---|

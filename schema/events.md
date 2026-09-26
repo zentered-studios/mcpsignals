@@ -75,8 +75,9 @@ The values:
 A server that already knows why a call failed records it directly:
 
 - `instrument()` tool results: set `_meta["mcpsignals/error_kind"]` on the
-  `isError` result, e.g. `"auth_required"`. Both packages export the key as
-  `ERROR_KIND_META_KEY`. The key is ignored on a successful result. An
+  `isError` result, e.g. `"auth_required"`. Node/Python export the key as
+  `ERROR_KIND_META_KEY`. Go exports it as `ErrorKindMetaKey`, set in
+  `CallToolResult.Meta`. The key is ignored on a successful result. An
   unknown value falls back to the heuristic below. The client receives the
   result unchanged, `_meta` included.
 - Events pushed to `EventBuffer` directly: set `error_kind` on the event.

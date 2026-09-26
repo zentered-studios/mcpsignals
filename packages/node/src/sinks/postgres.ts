@@ -31,7 +31,15 @@ const TOOL_CALL_COLUMNS = [
   'response_bytes',
   'arguments',
   'intent',
-  'transport'
+  'transport',
+  'protocol_version',
+  'request_id',
+  'trace_id',
+  'parent_span_id',
+  'result_type',
+  'error_code',
+  'read_only_hint',
+  'destructive_hint'
 ] as const;
 
 function toolCallRow(event: ToolCallEvent): unknown[] {
@@ -70,7 +78,7 @@ function buildMultiRowInsert(
 
 /**
  * Splits `rows` into as few statements as the bind-parameter ceiling allows.
- * At 19 tool_call columns that is 3449 rows each, far above the default
+ * At 27 tool_call columns that is 2427 rows each, far above the default
  * buffer size of 20 - but `bufferSize` is a public option, so a batch can
  * arrive well above it, and an unchunked statement would be rejected and
  * take the whole flush with it.

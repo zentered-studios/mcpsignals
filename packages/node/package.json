@@ -39,11 +39,11 @@
     "typecheck": "tsc --noEmit -p tsconfig.test.json"
   },
   "peerDependencies": {
-    "@modelcontextprotocol/server": "^2.0.0",
-    "zod": "^4.6.5",
-    "pg": "^8.11.0",
     "@google-cloud/bigquery": "^7.0.0 || ^8.0.0",
-    "@opentelemetry/api": "^1.9.0"
+    "@modelcontextprotocol/server": "^2.0.0",
+    "@opentelemetry/api": "^1.9.0",
+    "pg": "^8.11.0",
+    "zod": "^4.6.5"
   },
   "peerDependenciesMeta": {
     "pg": {
@@ -57,9 +57,9 @@
     }
   },
   "devDependencies": {
-    "@modelcontextprotocol/server": "^2.0.0",
-    "@modelcontextprotocol/client": "^2.0.0",
     "@google-cloud/bigquery": "^9.0.3",
+    "@modelcontextprotocol/client": "^2.1.0",
+    "@modelcontextprotocol/server": "^2.1.0",
     "@opentelemetry/api": "^1.9.0",
     "@types/node": "^26.5.1",
     "@types/pg": "^8.11.0",

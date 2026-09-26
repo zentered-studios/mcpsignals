@@ -100,3 +100,12 @@ starts producing real spans - no `mcpsignals`-side change needed. See
 [`schema/events.md`](../schema/events.md#otlp-mapping) for the exact
 attribute mapping and which OTel semantic-convention attributes are Stable
 versus Development.
+
+**Python: the `mcp` SDK already emits a span per request.** Since `mcp`
+2.2.0, the low-level `Server` turns on its own `OpenTelemetryMiddleware` by
+default. With a real `TracerProvider` it emits a `tools/call {name}` span,
+parented on the client's `traceparent` from the request `_meta`. `OtlpSink()`
+emits a second span for the same call, written at flush time and carrying
+the `mcpsignals.*` attributes (bytes, `error_kind`, intent, identity). Both
+are children of the caller's span when the client sent a `traceparent`. Count tool calls from one of the two, not both. The Node.js SDK
+emits no spans of its own.

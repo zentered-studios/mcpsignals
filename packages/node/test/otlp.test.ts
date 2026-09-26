@@ -26,6 +26,14 @@ function makeToolCallEvent(overrides: Partial<ToolCallEvent> = {}): ToolCallEven
     arguments: null,
     intent: null,
     transport: null,
+    protocol_version: null,
+    request_id: null,
+    trace_id: null,
+    parent_span_id: null,
+    result_type: null,
+    error_code: null,
+    read_only_hint: null,
+    destructive_hint: null,
     ...overrides
   };
 }
@@ -174,6 +182,32 @@ test('each tool_call span starts from the root context, not the ambient one', as
   }
 });
 
+test('a tool_call with trace context is parented on the caller span, not the ambient one', async () => {
+  const start = provider.spans.length;
+  const ambient = otel.trace.setSpan(
+    otel.context.active(),
+    otel.trace.wrapSpanContext({
+      traceId: '11111111111111111111111111111111',
+      spanId: '2222222222222222',
+      traceFlags: otel.TraceFlags.SAMPLED
+    })
+  );
+
+  await otel.context.with(ambient, () =>
+    otlpSink().write([
+      makeToolCallEvent({
+        trace_id: '0af7651916cd43dd8448eb211c80319c',
+        parent_span_id: 'b7ad6b7169203331'
+      })
+    ])
+  );
+
+  const parent = otel.trace.getSpanContext(provider.spans[start].context);
+  assert.equal(parent?.traceId, '0af7651916cd43dd8448eb211c80319c');
+  assert.equal(parent?.spanId, 'b7ad6b7169203331');
+  assert.equal(parent?.isRemote, true);
+});
+
 // The attribute mapping is the sink's whole product, and every `gen_ai.*` /
 // `mcp.*` name below is Development status in the OTel GenAI semantic
 // conventions, so it moves. These tests pin what we emit today; a
@@ -201,13 +235,26 @@ test('a fully populated event maps to the documented attribute set', async () =>
       intent: 'user asked',
       arguments: { a: 1 },
       request_bytes: 11,
-      response_bytes: 22
+      response_bytes: 22,
+      protocol_version: '2026-07-28',
+      request_id: '7',
+      result_type: 'complete',
+      read_only_hint: true,
+      destructive_hint: false
     })
   ]);
 
   assert.deepEqual(span.options.attributes, {
+    'mcp.protocol.version': '2026-07-28',
+    'jsonrpc.request.id': '7',
+    'mcpsignals.result.type': 'complete',
+    'mcpsignals.tool.read_only_hint': true,
+    'mcpsignals.tool.destructive_hint': false,
+    'mcp.method.name': 'tools/call',
     'gen_ai.operation.name': 'execute_tool',
     'gen_ai.tool.name': 'search',
+    'network.transport': 'tcp',
+    'network.protocol.name': 'http',
     'mcp.session.id': 'sess-1',
     'gen_ai.tool.call.arguments': '{"a":1}',
     'mcpsignals.intent': 'user asked',
@@ -233,6 +280,7 @@ test('null fields are omitted rather than emitted as null attributes', async () 
   assert.deepEqual(Object.keys(attributes).toSorted(), [
     'gen_ai.operation.name',
     'gen_ai.tool.name',
+    'mcp.method.name',
     'mcpsignals.request.bytes',
     'mcpsignals.response.bytes',
     'mcpsignals.server.name'
@@ -240,6 +288,14 @@ test('null fields are omitted rather than emitted as null attributes', async () 
   for (const value of Object.values(attributes)) {
     assert.notEqual(value, null);
   }
+});
+
+test('stdio maps to network.transport pipe, with no network.protocol.name', async () => {
+  const [span] = await spansFor([makeToolCallEvent({ transport: 'stdio' })]);
+
+  assert.equal(span.options.attributes?.['network.transport'], 'pipe');
+  assert.equal(span.options.attributes?.['network.protocol.name'], undefined);
+  assert.equal(span.options.attributes?.['mcpsignals.transport'], 'stdio');
 });
 
 test('a successful call gets status OK and no exception event', async () => {
@@ -269,6 +325,15 @@ test('a failed call gets status ERROR, error.type and an exception event', async
       attributes: { 'exception.message': 'record with that id was not found' }
     }
   ]);
+});
+
+test('a JSON-RPC error sets error.type and rpc.response.status_code to its code', async () => {
+  const [span] = await spansFor([
+    makeToolCallEvent({ success: false, error_code: -32602, error_message: 'Tool x not found' })
+  ]);
+
+  assert.equal(span.setAttributes['error.type'], '-32602');
+  assert.equal(span.setAttributes['rpc.response.status_code'], '-32602');
 });
 
 test('a failure with no message still gets status ERROR but no exception event', async () => {

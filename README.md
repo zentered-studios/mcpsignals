@@ -143,10 +143,10 @@ Node.js imports these from `mcpsignals`, Python from `mcpsignals.sinks`;
 install only the dependency for the sink you use. `console` writes JSON
 lines to stdout by default and is what Python uses when you pass no `sinks`
 at all. On a stdio transport it must write to stderr instead. The
-[MCP spec](https://modelcontextprotocol.io/specification/2025-06-18/basic/transports#stdio)
+[MCP spec](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio)
 says: "The server MUST NOT write anything to its `stdout` that is not a valid
-MCP message" and "The server MAY write UTF-8 strings to its standard error
-(`stderr`) for logging purposes." Pass the stream explicitly:
+MCP message" and "The server MAY write UTF-8 strings to `stderr` for any
+logging purposes." Pass the stream explicitly:
 
 ```ts
 sinks: [consoleSink({ stream: process.stderr })]

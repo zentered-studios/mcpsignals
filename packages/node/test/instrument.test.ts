@@ -717,6 +717,70 @@ test('transport: a tools/call over the SDK HTTP handler is recorded as transport
   }
 });
 
+// Protocol revision 2026-07-28 has no `initialize` handshake: each request
+// carries the client's identity in its own `_meta` envelope.
+test('2026-07-28: client identity comes from the per-request _meta envelope', async () => {
+  const events: AnyEvent[] = [];
+  const capturingSink = { write: async (batch: AnyEvent[]) => void events.push(...batch) };
+  let flush!: () => Promise<void>;
+  const handler = createMcpHandler(() => {
+    const server = new McpServer({ name: 'test-server', version: '1.0.0' });
+    ({ flush } = instrument(server, {
+      serverName: 'test-server',
+      sinks: [capturingSink],
+      bufferSize: 1,
+      flushIntervalMs: null
+    }));
+    server.registerTool(
+      'add-note',
+      { inputSchema: z.object({ text: z.string() }) },
+      async ({ text }) => ({ content: [{ type: 'text', text: `Saved: ${text}` }] })
+    );
+    return server;
+  });
+
+  try {
+    const response = await handler.fetch(
+      new Request('http://127.0.0.1/mcp', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          accept: 'application/json, text/event-stream',
+          'mcp-protocol-version': '2026-07-28',
+          'mcp-method': 'tools/call',
+          'mcp-name': 'add-note'
+        },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'tools/call',
+          params: {
+            name: 'add-note',
+            arguments: { text: 'hi' },
+            _meta: {
+              'io.modelcontextprotocol/protocolVersion': '2026-07-28',
+              'io.modelcontextprotocol/clientCapabilities': {},
+              'io.modelcontextprotocol/clientInfo': { name: 'modern-client', version: '3.1.4' }
+            }
+          }
+        })
+      })
+    );
+    const body = await response.text();
+    assert.equal(response.status, 200, body);
+    assert.ok(body.includes('Saved: hi'), `unexpected response body: ${body}`);
+
+    await flush();
+    assert.equal(events.length, 1);
+    assert.equal(events[0].success, true);
+    assert.equal(events[0].client_name, 'modern-client');
+    assert.equal(events[0].client_version, '3.1.4');
+    assert.equal(events[0].transport, 'http');
+  } finally {
+    await handler.close();
+  }
+});
+
 test('byte sizes: request_bytes/response_bytes are UTF-8 byte counts of the JSON, not string lengths', async () => {
   const { server, events } = createInstrumentedServer();
   server.registerTool(

@@ -5,19 +5,13 @@ present on both `MCPServer` and the low-level `Server` - the same mechanism
 works for both, no separate code paths needed. See
 https://py.sdk.modelcontextprotocol.io/v2/advanced/middleware/.
 
-Known SDK limitation (first verified against mcp==2.0.0, re-checked against
-the mcp==2.2.0 that a fresh `uv sync` resolves; mcp/server/context.py):
-`ServerRequestContext` - what middleware receives - does not publicly expose
-the transport's connection-level session id or a `connection` accessor
-(only the handler-facing `Context` class does, via a private `Connection`
-it doesn't share with middleware; `ctx.session` is a `ServerSession`, which
-has no session id either). We do not reach into that private attribute. As
-a result `session_id` on emitted events is only ever populated from the
-optional intent-capture value the calling agent supplies - it is `None` for
-calls where intent capture is off or the caller didn't pass one, even though
-the connection may well have a real session id.
-Track https://github.com/modelcontextprotocol/python-sdk for this being
-exposed to middleware in a future release.
+`session_id`: `ServerRequestContext` - what middleware receives - has no
+session id accessor (verified against mcp==2.2.0; mcp/server/context.py).
+It does carry the HTTP request on the streamable HTTP path, so the
+middleware reads the `Mcp-Session-Id` header the client echoes back on
+every request after `initialize`. On stdio there is no transport session,
+and `session_id` comes only from the optional intent-capture value the
+calling agent supplies.
 
 Guarantee: nothing the library does around a tool call can change what the
 client receives. The real handler always runs, its result is returned
@@ -31,6 +25,7 @@ arguments. A sink failure is handled separately by EventBuffer, also logged
 once per sink.
 """
 
+import asyncio
 import inspect
 import json
 import logging
@@ -40,9 +35,13 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from typing import Any
 
+from mcp.server.mcpserver import MCPServer
+from mcp.shared.exceptions import MCPError
+from pydantic import ValidationError
+
 from mcpsignals.buffer import EventBuffer
 from mcpsignals.error_kind import classify_error, is_error_kind
-from mcpsignals.events import ERROR_KIND_META_KEY, ErrorKind, ToolCallEvent
+from mcpsignals.events import ERROR_KIND_META_KEY, ErrorKind, ResultType, ToolCallEvent
 from mcpsignals.handle import InstrumentHandle
 from mcpsignals.handle import register as _register_handle
 from mcpsignals.intent_capture import (
@@ -55,6 +54,13 @@ from mcpsignals.intent_capture import (
 from mcpsignals.redaction import RedactionConfig, redact_arguments
 from mcpsignals.sinks.base import Sink
 from mcpsignals.sinks.console import ConsoleSink
+from mcpsignals.trace_context import parse_traceparent
+
+#: JSON-RPC's code for invalid params, which the SDK answers a pydantic
+#: `ValidationError` with.
+_INVALID_PARAMS = -32602
+
+ToolHints = tuple[bool | None, bool | None]
 
 logger = logging.getLogger("mcpsignals")
 
@@ -100,6 +106,56 @@ def _content_to_text(content: Any) -> str | None:
         if text:
             parts.append(text)
     return "\n".join(parts) if parts else None
+
+
+def _result_type(result: Any) -> ResultType:
+    """`input_required` for a 2026-07-28 multi-round-trip result, else `complete`."""
+    if isinstance(result, Mapping):
+        value = result.get("resultType", result.get("result_type"))
+    else:
+        value = getattr(result, "result_type", None)
+    return "input_required" if value == "input_required" else "complete"
+
+
+def _error_code(exc: BaseException) -> int | None:
+    """The JSON-RPC code the SDK answers `exc` with, where every transport
+    agrees on it. Any other exception is answered with a code that depends on
+    the transport (0 or -32603), so it is recorded as None."""
+    if isinstance(exc, MCPError):
+        return exc.error.code
+    if isinstance(exc, ValidationError):
+        return _INVALID_PARAMS
+    return None
+
+
+def _as_bool(value: Any) -> bool | None:
+    return value if isinstance(value, bool) else None
+
+
+def _tool_hints(tool: Any) -> tuple[str | None, ToolHints]:
+    """A `tools/list` entry's name and its read-only / destructive hints.
+    Handles the wire dict (camelCase) and the `Tool` model (snake_case)."""
+    if isinstance(tool, Mapping):
+        name = tool.get("name")
+        annotations = tool.get("annotations")
+    else:
+        name = getattr(tool, "name", None)
+        annotations = getattr(tool, "annotations", None)
+    if isinstance(annotations, Mapping):
+        read_only = annotations.get("readOnlyHint", annotations.get("read_only_hint"))
+        destructive = annotations.get("destructiveHint", annotations.get("destructive_hint"))
+    else:
+        read_only = getattr(annotations, "read_only_hint", None)
+        destructive = getattr(annotations, "destructive_hint", None)
+    return (name if isinstance(name, str) else None), (_as_bool(read_only), _as_bool(destructive))
+
+
+def _session_id_header(request: Any) -> str | None:
+    """The `Mcp-Session-Id` header of an HTTP request, capped, or None."""
+    headers = getattr(request, "headers", None)
+    if headers is None:
+        return None
+    return bounded(headers.get("mcp-session-id"), MAX_IDENTIFIER_LENGTH) or None
 
 
 def _serialize_for_bytes(value: Any) -> bytes:
@@ -156,9 +212,75 @@ def instrument(
             exc,
         )
 
+    # Tool name -> (read_only_hint, destructive_hint). Middleware sees only the
+    # request, not the registration, so hints come from the `tools/list`
+    # results passing through. On `MCPServer`, the first miss also lists the
+    # server's tools once; a name still missing after that is unknown and is
+    # not listed again. `add_tool` and `remove_tool` clear the cache, so a tool
+    # re-added with other annotations is read fresh. On a low-level `Server`
+    # the hints are null until the client calls `tools/list`.
+    tool_hints: dict[str, ToolHints] = {}
+    # The one listing since the last registration change. Concurrent misses
+    # await the same task, so none of them reads a half-filled cache.
+    listing: asyncio.Task[None] | None = None
+
+    def _remember_hints(tools: Any) -> None:
+        for tool in tools or []:
+            name, hints = _tool_hints(tool)
+            if name is not None:
+                tool_hints[name] = hints
+
+    async def _list_hints() -> None:
+        tools = await server.list_tools()
+        # A registration change while this ran makes the result stale.
+        if listing is asyncio.current_task():
+            _remember_hints(tools)
+
+    async def _hints_for(name: str) -> ToolHints:
+        nonlocal listing
+        if name not in tool_hints and isinstance(server, MCPServer):
+            if listing is None:
+                listing = asyncio.ensure_future(_list_hints())
+            task = listing
+            try:
+                # Shielded: a cancelled call must not cancel the shared listing.
+                await asyncio.shield(task)
+            except Exception:
+                # A failed listing is retried on the next miss.
+                if listing is task:
+                    listing = None
+                raise
+        return tool_hints.get(name, (None, None))
+
+    def _forget_hints() -> None:
+        nonlocal listing
+        tool_hints.clear()
+        listing = None
+
+    if isinstance(server, MCPServer):
+        # `@server.tool()` registers through `add_tool`, so this sees every change.
+        for method_name in ("add_tool", "remove_tool"):
+            original = getattr(server, method_name)
+
+            def _invalidating(*args: Any, _original: Any = original, **kwargs: Any) -> Any:
+                result = _original(*args, **kwargs)
+                _forget_hints()
+                return result
+
+            setattr(server, method_name, _invalidating)
+
     async def _mcpsignals_middleware(ctx, call_next):
         if ctx.method == "tools/list":
             result = await call_next(ctx)
+            try:
+                tools = (
+                    result.get("tools")
+                    if isinstance(result, Mapping)
+                    else getattr(result, "tools", None)
+                )
+                _remember_hints(tools)
+            except Exception as exc:  # noqa: BLE001 - never changes the tools/list result
+                _warn_once("tool hints", exc)
             if intent_capture or intent_capture_tools:
                 # `call_next` returns a wire-shaped dict here (camelCase keys),
                 # not a ListToolsResult/Tool instance - verified against the
@@ -231,7 +353,25 @@ def instrument(
             client_name = bounded(client_info.name, MAX_IDENTIFIER_LENGTH)
             client_version = bounded(client_info.version, MAX_IDENTIFIER_LENGTH)
 
-        transport = "http" if getattr(ctx, "request", None) is not None else "stdio"
+        http_request = getattr(ctx, "request", None)
+        transport = "http" if http_request is not None else "stdio"
+        # The transport's session: the `Mcp-Session-Id` header a stateful
+        # streamable HTTP client echoes back on every request. A stateless
+        # server accepts any value here, so it takes the identifier cap.
+        transport_session_id = _session_id_header(http_request)
+
+        # Revision 2026-07-28 carries the version on every request's envelope;
+        # earlier revisions negotiate it in `initialize`. Either way the client
+        # supplied it, so it takes the identifier cap, as does the request id.
+        protocol_version = bounded(getattr(ctx, "protocol_version", None), MAX_IDENTIFIER_LENGTH)
+        request_id = getattr(ctx, "request_id", None)
+        request_id = (
+            bounded(str(request_id), MAX_IDENTIFIER_LENGTH)
+            if isinstance(request_id, (str, int)) and not isinstance(request_id, bool)
+            else None
+        )
+        meta = getattr(ctx, "meta", None)
+        trace = parse_traceparent(meta.get("traceparent") if isinstance(meta, Mapping) else None)
 
         async def _record(ts: datetime, error: BaseException | None, result: Any) -> None:
             # First thing: the handler has just settled, so this is the
@@ -240,8 +380,9 @@ def instrument(
             duration_ms = int((time.perf_counter() - start) * 1000)
 
             # Runs after the handler so its latency never lands in
-            # `duration_ms`. A host resolver that raises records a null
-            # identity; the handler's result is already on its way back.
+            # `duration_ms`. It still runs before the result is returned, so
+            # the client waits for it. A host resolver that raises records a
+            # null identity.
             user_id: str | None = None
             org_id: str | None = None
             if resolve_identity is not None:
@@ -255,12 +396,24 @@ def instrument(
                     _warn_once("resolve_identity", exc)
                     user_id, org_id = None, None
 
+            # After the timed window too. The first miss after a registration
+            # change lists the server's tools, and the client waits for that one.
+            try:
+                read_only_hint, destructive_hint = await _hints_for(raw_tool_name)
+            except Exception as exc:  # noqa: BLE001 - a hint lookup never costs the event
+                _warn_once("tool hints", exc)
+                read_only_hint, destructive_hint = None, None
+
             declared_kind: ErrorKind | None = None
+            result_type: ResultType | None = None
+            error_code: int | None = None
             if error is not None:
                 success = False
                 error_message: str | None = str(error)[:2000]
                 response_bytes = 0
+                error_code = _error_code(error)
             else:
+                result_type = _result_type(result)
                 success = not _is_error_result(result)
                 error_message = None if success else _content_to_text(_result_content(result))
                 if error_message:
@@ -305,7 +458,7 @@ def instrument(
                 server_name=server_name,
                 server_version=server_version,
                 tool_name=tool_name,
-                session_id=extracted.get("session_id"),
+                session_id=transport_session_id or extracted.get("session_id"),
                 agent_id=extracted.get("agent_id"),
                 client_name=client_name,
                 client_version=client_version,
@@ -320,6 +473,14 @@ def instrument(
                 arguments=arguments,
                 intent=extracted.get("intent"),
                 transport=transport,
+                protocol_version=protocol_version,
+                request_id=request_id,
+                trace_id=trace[0] if trace else None,
+                parent_span_id=trace[1] if trace else None,
+                result_type=result_type,
+                error_code=error_code,
+                read_only_hint=read_only_hint,
+                destructive_hint=destructive_hint,
             )
             await buffer.add(event)
 

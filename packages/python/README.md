@@ -34,8 +34,9 @@ def search(query: str) -> str:
 Call `instrument()` any time before the server starts handling requests. It
 appends to `server.middleware`, and that chain is rebuilt from the live list
 on every request, so calling it before or after your `@server.tool()`
-definitions makes no difference. The Node.js package differs here: it wraps
-`registerTool`, so it has to run before any tool is registered.
+definitions makes no difference. The Node.js package differs here: it reads
+tool annotations and intent capture from wrapping `registerTool`, so it has
+to run before any tool is registered.
 
 With no sink configured it writes JSON lines to stdout. On a stdio
 transport pass `sinks=[ConsoleSink(stream=sys.stderr)]`, because the MCP
@@ -164,16 +165,13 @@ interval mode, `close()` is also what stops the interval task and removes the
 accumulate either. Both `flush()` and `close()` are safe to await more than
 once.
 
-## Known limitation: `session_id`
+## `session_id`
 
-`mcp` 2.0.0's middleware-facing `ServerRequestContext` does not publicly
-expose the transport's connection-level session id (only the
-handler-facing `Context` class does, via a private accessor middleware
-doesn't have). `session_id` on emitted events is therefore only ever
-populated when intent capture is enabled and the calling agent supplies
-one - not from the underlying transport connection. See `instrument.py`
-for details; this will be revisited if/when upstream exposes it to
-middleware.
+On a stateful streamable HTTP connection, `session_id` is the
+`Mcp-Session-Id` header the client sends with every request after
+`initialize`. It wins over a `session_id` the calling agent supplies through
+intent capture. On stdio there is no transport session, so `session_id` is
+only set when intent capture is enabled and the agent supplies one.
 
 ## Full docs
 

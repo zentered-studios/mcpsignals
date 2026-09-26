@@ -9,12 +9,23 @@ conventions for MCP (open-telemetry/semantic-conventions-genai,
 docs/gen-ai/mcp.md) as of this writing. Everything in that document is
 Development/Experimental status, not Stable, except where noted below.
 Where our schema has no equivalent convention, we use a custom
-`mcpsignals.*` attribute rather than force a bad fit (see `transport`).
+`mcpsignals.*` attribute rather than force a bad fit.
 """
 
 import json
 
 from mcpsignals.events import ToolCallEvent
+
+
+def _network_attributes(transport: str | None) -> dict[str, str]:
+    """The MCP semconv's "Recording MCP transport" table: stdio is `pipe`,
+    streamable HTTP is `tcp` with `network.protocol.name` `http`. The
+    original value also stays on `mcpsignals.transport`."""
+    if transport == "stdio":
+        return {"network.transport": "pipe"}
+    if transport == "http":
+        return {"network.transport": "tcp", "network.protocol.name": "http"}
+    return {}
 
 
 class OtlpSink:
@@ -31,8 +42,10 @@ class OtlpSink:
 
         for event in events:
             attributes = {
+                "mcp.method.name": "tools/call",
                 "gen_ai.operation.name": "execute_tool",
                 "gen_ai.tool.name": event.tool_name,
+                **_network_attributes(event.transport),
                 "mcpsignals.server.name": event.server_name,
                 "mcpsignals.request.bytes": event.request_bytes,
                 "mcpsignals.response.bytes": event.response_bytes,
@@ -54,11 +67,12 @@ class OtlpSink:
             if event.org_id:
                 attributes["mcpsignals.org.id"] = event.org_id
             if event.transport:
-                # Deliberately NOT network.transport: that attribute's vocabulary
-                # (tcp/udp/quic/pipe/unix) does not fit MCP's stdio/http.
                 attributes["mcpsignals.transport"] = event.transport
             if event.intent:
                 attributes["mcpsignals.intent"] = event.intent
+            if not event.success:
+                # The semconv value for an `isError` tool result. Same as the Node sink.
+                attributes["error.type"] = "tool_error"
             if event.error_kind:
                 attributes["mcpsignals.error.kind"] = event.error_kind
             if event.arguments is not None:

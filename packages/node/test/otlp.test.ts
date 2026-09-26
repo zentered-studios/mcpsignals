@@ -206,8 +206,11 @@ test('a fully populated event maps to the documented attribute set', async () =>
   ]);
 
   assert.deepEqual(span.options.attributes, {
+    'mcp.method.name': 'tools/call',
     'gen_ai.operation.name': 'execute_tool',
     'gen_ai.tool.name': 'search',
+    'network.transport': 'tcp',
+    'network.protocol.name': 'http',
     'mcp.session.id': 'sess-1',
     'gen_ai.tool.call.arguments': '{"a":1}',
     'mcpsignals.intent': 'user asked',
@@ -233,6 +236,7 @@ test('null fields are omitted rather than emitted as null attributes', async () 
   assert.deepEqual(Object.keys(attributes).toSorted(), [
     'gen_ai.operation.name',
     'gen_ai.tool.name',
+    'mcp.method.name',
     'mcpsignals.request.bytes',
     'mcpsignals.response.bytes',
     'mcpsignals.server.name'
@@ -240,6 +244,14 @@ test('null fields are omitted rather than emitted as null attributes', async () 
   for (const value of Object.values(attributes)) {
     assert.notEqual(value, null);
   }
+});
+
+test('stdio maps to network.transport pipe, with no network.protocol.name', async () => {
+  const [span] = await spansFor([makeToolCallEvent({ transport: 'stdio' })]);
+
+  assert.equal(span.options.attributes?.['network.transport'], 'pipe');
+  assert.equal(span.options.attributes?.['network.protocol.name'], undefined);
+  assert.equal(span.options.attributes?.['mcpsignals.transport'], 'stdio');
 });
 
 test('a successful call gets status OK and no exception event', async () => {

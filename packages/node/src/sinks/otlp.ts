@@ -2,6 +2,19 @@ import type { Sink } from './types.js';
 import type { AnyEvent } from '../events.js';
 
 /**
+ * The MCP semconv's "Recording MCP transport" table: stdio is `pipe`,
+ * streamable HTTP is `tcp` with `network.protocol.name` `http`. The
+ * original value also stays on `mcpsignals.transport`.
+ */
+function networkAttributes(transport: string | null): Record<string, string> {
+  if (transport === 'stdio') return { 'network.transport': 'pipe' };
+  if (transport === 'http') {
+    return { 'network.transport': 'tcp', 'network.protocol.name': 'http' };
+  }
+  return {};
+}
+
+/**
  * Emits one root span per `tool_call` event via the global OpenTelemetry
  * TracerProvider — this sink does not manage its own exporter, it relies on
  * whatever the host application already configured (the standard OTel
@@ -13,9 +26,7 @@ import type { AnyEvent } from '../events.js';
  * conventions-genai` repo (docs/gen-ai/mcp.md) as of this writing. Every
  * `gen_ai.*` / `mcp.*` attribute below is marked Development, not Stable —
  * expect these names to still move. Fields with no defined MCP/GenAI
- * convention are emitted as custom `mcpsignals.*` attributes rather than
- * forced into a semantically mismatched Stable attribute (see schema/
- * events.md's OTLP mapping note for the `transport` case specifically).
+ * convention are emitted as custom `mcpsignals.*` attributes.
  */
 export function otlpSink(): Sink {
   return {
@@ -36,8 +47,10 @@ export function otlpSink(): Sink {
             kind: otel.SpanKind.SERVER,
             startTime: event.ts,
             attributes: {
+              'mcp.method.name': 'tools/call',
               'gen_ai.operation.name': 'execute_tool',
               'gen_ai.tool.name': event.tool_name,
+              ...networkAttributes(event.transport),
               ...(event.session_id !== null && { 'mcp.session.id': event.session_id }),
               ...(event.arguments !== null && {
                 'gen_ai.tool.call.arguments': JSON.stringify(event.arguments)

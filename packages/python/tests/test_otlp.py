@@ -128,8 +128,11 @@ async def test_a_fully_populated_event_maps_to_the_documented_attribute_set():
     )
 
     assert span["attributes"] == {
+        "mcp.method.name": "tools/call",
         "gen_ai.operation.name": "execute_tool",
         "gen_ai.tool.name": "search",
+        "network.transport": "tcp",
+        "network.protocol.name": "http",
         "mcpsignals.server.name": "my-server",
         "mcpsignals.request.bytes": 11,
         "mcpsignals.response.bytes": 22,
@@ -155,6 +158,7 @@ async def test_none_fields_are_omitted_rather_than_emitted_as_none_attributes():
     assert sorted(span["attributes"]) == [
         "gen_ai.operation.name",
         "gen_ai.tool.name",
+        "mcp.method.name",
         "mcpsignals.request.bytes",
         "mcpsignals.response.bytes",
         "mcpsignals.server.name",
@@ -163,11 +167,21 @@ async def test_none_fields_are_omitted_rather_than_emitted_as_none_attributes():
 
 
 @pytest.mark.asyncio
+async def test_stdio_maps_to_network_transport_pipe_without_a_protocol_name():
+    span = await span_for(make_event(transport="stdio"))
+
+    assert span["attributes"]["network.transport"] == "pipe"
+    assert "network.protocol.name" not in span["attributes"]
+    assert span["attributes"]["mcpsignals.transport"] == "stdio"
+
+
+@pytest.mark.asyncio
 async def test_a_successful_call_gets_status_ok_and_no_exception():
     span = await span_for(make_event(success=True))
 
     assert span["status"].status_code is StatusCode.OK
     assert "exception" not in span
+    assert "error.type" not in span["attributes"]
 
 
 @pytest.mark.asyncio
@@ -182,6 +196,7 @@ async def test_a_failed_call_gets_status_error_and_records_an_exception():
 
     assert span["status"].status_code is StatusCode.ERROR
     assert span["status"].description == "record with that id was not found"
+    assert span["attributes"]["error.type"] == "tool_error"
     assert span["attributes"]["mcpsignals.error.kind"] == "not_found"
     assert str(span["exception"]) == "record with that id was not found"
 

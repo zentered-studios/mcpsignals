@@ -96,16 +96,7 @@ interface ToolsCallRequest {
 type ToolsCallHandler = (request: ToolsCallRequest, ctx: ToolCallContext) => unknown;
 
 /** The intent-capture values a call carried, and its arguments without them. */
-interface IntentFields {
-  clean: Record<string, unknown>;
-  session_id: string | null;
-  agent_id: string | null;
-  intent: string | null;
-}
-
-function extractIntentFields(args: Record<string, unknown>): IntentFields {
-  return extractAndStripIntent(args);
-}
+type IntentFields = ReturnType<typeof extractAndStripIntent>;
 
 function noIntentFields(args: Record<string, unknown>): IntentFields {
   return { clean: args, session_id: null, agent_id: null, intent: null };
@@ -249,7 +240,7 @@ export function instrument(server: McpServer, options: InstrumentOptions): Instr
 
     /** Strips injected intent-capture keys and leaves them for the recorder. */
     const prepare = (args: Record<string, unknown>, ctx: ToolCallContext) => {
-      const fields = canInject ? extractIntentFields(args) : noIntentFields(args);
+      const fields = canInject ? extractAndStripIntent(args) : noIntentFields(args);
       handlerCalls.set(ctx, fields);
       return fields.clean;
     };
@@ -335,7 +326,7 @@ export function instrument(server: McpServer, options: InstrumentOptions): Instr
       const rawRecord = isRecord(rawArgs) ? rawArgs : {};
       const fields =
         handlerCalls.get(ctx) ??
-        (registration?.canInject ? extractIntentFields(rawRecord) : noIntentFields(rawRecord));
+        (registration?.canInject ? extractAndStripIntent(rawRecord) : noIntentFields(rawRecord));
 
       // Revision 2026-07-28 carries the version on every request's envelope;
       // earlier revisions negotiate it once in `initialize`. Either way the

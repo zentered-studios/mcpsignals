@@ -174,8 +174,10 @@ See [`schema/events.md`](../../schema/events.md) and the
   128 Unicode characters. Empty optional strings serialize as null.
 - Session IDs come only from `ServerSession.ID()`, null when absent (including
   stdio and new stateless HTTP). HTTP is detected from `RequestExtra.Header`.
-  Set `Transport: "stdio"` for stdio; otherwise an undetectable transport is null,
-  not guessed. An actual HTTP request takes precedence over a configured hint.
+  Without HTTP headers, `transport` is `Options.Transport`, or `stdio` when unset,
+  as in Node/Python. The legacy SSE transport exposes no headers to middleware:
+  set `Transport: "http"` for it. An actual HTTP request takes precedence over
+  a configured value.
 - `agent_id` and `intent` are null. No schemas are injected or arguments stripped.
 
 To declare an error category, return `IsError: true` with

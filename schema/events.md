@@ -43,7 +43,7 @@ One row per tool invocation.
 | `response_bytes` | integer | no | `byteLength` of the serialized tool result. |
 | `arguments` | json | yes | The tool call's arguments. Null unless argument capture is explicitly enabled. Subject to redaction - see the redaction section of the top-level README. |
 | `intent` | string | yes | The calling agent's stated reason for the call. Only present when intent capture is enabled for this tool. Truncated to 2000 chars. |
-| `transport` | string | yes | `stdio` or `http`. Node/Python default to `stdio` without HTTP context. Go detects HTTP from SDK request headers; other transports are null unless the application explicitly supplies `stdio` or `http`. |
+| `transport` | string | yes | `stdio` or `http`. All packages default to `stdio` when there is no HTTP request context, so none emits null today; the column stays nullable for future transports. Go detects HTTP from SDK request headers and takes an explicit `Transport` for legacy SSE, which exposes none. |
 
 ### Go middleware boundary
 

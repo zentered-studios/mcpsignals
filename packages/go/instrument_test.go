@@ -105,7 +105,7 @@ func TestSDKToolCalls(t *testing.T) {
 				t.Fatalf("events: %d", len(events))
 			}
 			e := events[0]
-			if e.ServerName != "test-server" || *e.ServerVersion != "1.0" || e.ToolName != "echo" || !e.Success || e.Arguments != nil || e.ErrorKind != nil || e.ErrorMessage != nil || e.Transport == nil || *e.Transport != "stdio" || e.SessionID != nil || e.UserID != nil || len(*e.ClientName) != 128 || *e.ClientVersion != "1.2" || e.RequestBytes != len(args) || e.ResponseBytes == 0 || e.DurationMS < 0 || e.TS.Location() != time.UTC {
+			if e.ServerName != "test-server" || *e.ServerVersion != "1.0" || e.ToolName != "echo" || !e.Success || e.Arguments != nil || e.ErrorKind != nil || e.ErrorMessage != nil || e.Transport == nil || *e.Transport != "stdio" || e.SessionID != nil || e.UserID != nil || len(*e.ClientName) != 128 || *e.ClientVersion != "1.2" || e.RequestBytes != len(args) || e.ResponseBytes == 0 || e.DurationMS < 0 || e.TS.Location() != time.UTC || e.TS.Nanosecond()%int(time.Millisecond) != 0 {
 				t.Fatalf("bad event: %+v", e)
 			}
 			if *events[1].ErrorKind != AuthRequired || *events[1].ErrorMessage != "Sign in." {

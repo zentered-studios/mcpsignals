@@ -165,7 +165,8 @@ See [`schema/events.md`](../../schema/events.md) and the
   recorded, matching Node/Python.
   A multi-round-trip call records one event, for the leg that completes. An
   `input_required` leg is not recorded, so `duration_ms` covers the final leg.
-- `ts` is UTC at handler-chain entry; `duration_ms` measures that chain using
+- `ts` is UTC at handler-chain entry, truncated to the millisecond like Node's
+  `toISOString`. `duration_ms` measures that chain using
   Go's monotonic clock, excluding redaction/identity resolution and sink writes.
   It rounds to the nearest millisecond, like Node.
 - `success` follows `CallToolResult.IsError`; an SDK/handler error returned without

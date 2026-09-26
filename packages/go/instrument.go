@@ -113,7 +113,8 @@ func (h *Handle) middleware(next mcp.MethodHandler) mcp.MethodHandler {
 		// Identity and redaction run after the handler, as in Node/Python, so a
 		// slow resolver neither delays the handler nor shifts ts.
 		event := h.prepare(ctx, call, name, args)
-		event.TS = start.UTC()
+		// Millisecond precision, like Node's toISOString.
+		event.TS = start.UTC().Truncate(time.Millisecond)
 		event.DurationMS = durationMS(duration)
 		h.record(event, result, err)
 		return result, err

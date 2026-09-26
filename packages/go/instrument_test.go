@@ -475,6 +475,28 @@ func TestMiddlewareTransport(t *testing.T) {
 	}
 }
 
+func TestHandlerPanicIsRecordedAndReraised(t *testing.T) {
+	sink := new(memorySink)
+	h := &Handle{buffer: newBuffer(t, BufferOptions{Manual: true, Sinks: []Sink{sink}}), options: Options{ServerName: "test"}}
+	req := &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{Name: "test"}}
+	sentinel := errors.New("storage not found")
+	func() {
+		defer func() {
+			if recover() != sentinel {
+				t.Fatal("handler panic changed")
+			}
+		}()
+		_, _ = h.middleware(func(context.Context, string, mcp.Request) (mcp.Result, error) { panic(sentinel) })(context.Background(), "tools/call", req)
+	}()
+	if err := h.Flush(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	events := sink.snapshot()
+	if len(events) != 1 || events[0].Success || *events[0].ErrorMessage != "storage not found" || *events[0].ErrorKind != NotFound {
+		t.Fatalf("panic not recorded: %+v", events)
+	}
+}
+
 func TestMiddlewarePreservesPointersContextAndPanics(t *testing.T) {
 	b := newBuffer(t, BufferOptions{Manual: true})
 	h := &Handle{buffer: b, options: Options{ServerName: "test"}}

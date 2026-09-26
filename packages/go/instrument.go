@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -98,8 +99,20 @@ func (h *Handle) middleware(next mcp.MethodHandler) mcp.MethodHandler {
 		start := time.Now()
 		// A handler may replace Params fields; record what the call arrived with.
 		name, args := call.Params.Name, call.Params.Arguments
-		// Deliberately no recovery around next: handler errors/panics belong to the SDK.
+		returned := false
+		defer func() {
+			if returned {
+				return
+			}
+			// A handler panic is recorded as a failure, as Node records a throw,
+			// and re-raised with the same value. runtime.Goexit is not recorded.
+			if v := recover(); v != nil {
+				h.finish(ctx, call, name, args, start, time.Since(start), nil, errors.New(fmt.Sprint(v)))
+				panic(v)
+			}
+		}()
 		result, err := next(ctx, method, req)
+		returned = true
 		duration := time.Since(start)
 		if r, ok := result.(*mcp.CallToolResult); ok && r != nil && r.NeedsInput() {
 			// Not a completed invocation: the client answers the input requests
@@ -111,17 +124,22 @@ func (h *Handle) middleware(next mcp.MethodHandler) mcp.MethodHandler {
 			// names must not create rows with client-chosen tool names.
 			return result, err
 		}
-		// Identity and redaction run after the handler, as in Node/Python, so a
-		// slow resolver neither delays the handler nor shifts ts. The resolver
-		// keeps the request's values but not its cancellation, so a canceled or
-		// timed-out call still gets its identity.
-		event := h.prepare(context.WithoutCancel(ctx), call, name, args)
-		// Millisecond precision, like Node's toISOString.
-		event.TS = start.UTC().Truncate(time.Millisecond)
-		event.DurationMS = durationMS(duration)
-		h.record(event, result, err)
+		h.finish(ctx, call, name, args, start, duration, result, err)
 		return result, err
 	}
+}
+
+// finish builds and queues the event for one completed call.
+func (h *Handle) finish(ctx context.Context, call *mcp.CallToolRequest, name string, args json.RawMessage, start time.Time, duration time.Duration, result mcp.Result, err error) {
+	// Identity and redaction run after the handler, as in Node/Python, so a
+	// slow resolver neither delays the handler nor shifts ts. The resolver
+	// keeps the request's values but not its cancellation, so a canceled or
+	// timed-out call still gets its identity.
+	event := h.prepare(context.WithoutCancel(ctx), call, name, args)
+	// Millisecond precision, like Node's toISOString.
+	event.TS = start.UTC().Truncate(time.Millisecond)
+	event.DurationMS = durationMS(duration)
+	h.record(event, result, err)
 }
 
 func (h *Handle) prepare(ctx context.Context, req *mcp.CallToolRequest, name string, args json.RawMessage) (e ToolCallEvent) {

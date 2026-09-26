@@ -73,8 +73,9 @@ other receiving middleware adds.
 
 Supply the server's actual advertised name/version: the SDK keeps its
 `Implementation` private. The library returns the exact handler result/error
-and passes the original request and context through. Handler panics propagate
-unchanged and do not produce an event. Telemetry callback panics are suppressed;
+and passes the original request and context through. A handler panic records a
+`success: false` event with the panic value as `error_message`, as Node records
+a thrown error, then re-panics with the same value. Telemetry callback panics are suppressed;
 sink failures are isolated from tool outcomes.
 
 ## Lifecycle and delivery

@@ -27,7 +27,8 @@ Reviewed on 2026-09-26 against official SDK **v1.8.0**, commit
 ## Design boundaries
 
 - Middleware records one completed invocation, not an aggregated conversation.
-  SDK rejection before dispatch and handler panics are outside event coverage.
+  SDK rejection before dispatch is outside event coverage. A handler panic is
+  recorded as a failure, like a Node throw, then re-raised with the same value.
 - Explicit server name/version avoids reflection/private SDK fields. Transport
   defaults to `stdio` without HTTP headers, as in Node/Python. Unknown session
   data remains null. `intent`/`agent_id` remain null.

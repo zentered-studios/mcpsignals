@@ -1,0 +1,91 @@
+/review 88
+
+---
+
+<task-notification>
+<task-id>a96f22f41f132b39f</task-id>
+<output-file>/private/tmp/claude-501/-Users-patrick-Sites-mcpsignals/ec3bfc23-77d6-41a3-899b-b7120a21d729/tasks/a96f22f41f132b39f.output</output-file>
+<status>completed</status>
+<summary>Agent "/code-review 88" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>No effort level was given, so this review reuses high, your last level. Type a level, for example `/code-review high`, to change it.
+
+I reviewed PR #88. Its head is `9bfed44`, the same commit as the local branch `feat/go-sdk-84-v2`. Some of it is unverified:
+
+- **Go is not installed on this machine,** so I could not run `go test` or build anything. I checked the SDK calls (`NeedsInput`, `ClientInfo`, the `unknown tool` error, middleware order) against go-sdk v1.8.0 source fetched from GitHub.
+- **Node parity:** I read `packages/node/src/instrument.ts` for comparison.
+- **`.releaserc.json` works as intended:** the release rule really stops go-scoped releases, because a custom `release: false` blocks the fallback to the default rules (checked in the installed `@semantic-release/commit-analyzer`).
+- **Conventions:** the repo has no CLAUDE.md. The diff and commit subjects break no rule in your global CLAUDE.md. I found no em dashes or banned words.
+
+Nothing I found is a crash. Most findings are places where Go writes different values than Node for the same call.
+
+```json
+[
+  {
+    "file": "packages/go/instrument.go",
+    "line": 227,
+    "summary": "serializedSize uses json.NewEncoder with HTML escaping on (the default), so every &lt;, &gt;, &amp; and U+2028/2029 in a result counts as 6 bytes; Node's JSON.stringify counts each as 1.",
+    "failure_scenario": "A tool returns an HTML or XML page with 10,000 angle brackets. Go records response_bytes about 50KB higher than Node does for the same result, so a query over the shared tables compares numbers that do not match. Fix: call enc.SetEscapeHTML(false) on the encoder."
+  },
+  {
+    "file": "packages/go/instrument.go",
+    "line": 154,
+    "summary": "ResolveIdentity gets the request ctx after the handler returns. If the call was canceled or timed out, that ctx is already done.",
+    "failure_scenario": "The client sends notifications/cancelled, or the handler hits a ctx deadline. A resolver that does a ctx-aware DB or token lookup gets context.Canceled, prepare treats that as a resolver error, and the event records user_id and org_id as null. The calls you most want to attribute (timeouts, cancellations) lose their identity. Fix: pass context.WithoutCancel(ctx), which keeps ctx values but drops cancellation."
+  },
+  {
+    "file": "packages/go/instrument.go",
+    "line": 116,
+    "summary": "ts is time.Time, which JSON-encodes with nanosecond precision (RFC3339Nano). Node writes millisecond ISO strings.",
+    "failure_scenario": "A Go custom sink that JSON-encodes events into the same warehouse table as Node writes ts values like 2026-09-26T10:00:00.123456789Z. A column or loader limited to microseconds may reject or truncate them, and Go rows sort differently from Node rows. I have not verified the BigQuery rejection. Fix: truncate to milliseconds (start.UTC().Truncate(time.Millisecond)) to match Node."
+  },
+  {
+    "file": "packages/go/instrument.go",
+    "line": 124,
+    "summary": "request_bytes is len of the raw argument bytes the client sent, whitespace included. Node measures the compact JSON.stringify of the parsed arguments, which the schema calls the serialized arguments.",
+    "failure_scenario": "A client sends pretty-printed arguments such as {\n  \"query\": \"x\"\n}. Go records more bytes than Node for the same call. The README documents this as a boundary difference, but the value still breaks the cross-package claim that all three packages write the same contract. Fix: count json.Compact output, or measure the decoded value."
+  },
+  {
+    "file": "packages/go/buffer.go",
+    "line": 62,
+    "summary": "NewEventBuffer accepts MaxQueueSize &lt; BufferSize, which makes the size trigger unreachable.",
+    "failure_scenario": "BufferOptions{MaxQueueSize: 10} keeps the default BufferSize of 20. The queue never reaches 20, so Push never wakes the worker. Once 10 events are queued, every further call is dropped until the next 5s tick. Fix: return an error when MaxQueueSize &lt; BufferSize, or clamp BufferSize."
+  },
+  {
+    "file": "packages/go/buffer.go",
+    "line": 168,
+    "summary": "Close's select picks at random when b.done and ctx.Done() are both ready. It can return ctx.Err() without draining, even though the worker has already stopped.",
+    "failure_scenario": "In manual mode, b.done is closed at construction. Close(ctx) with a ctx that is already expired, or expires as Close starts, sometimes returns context.DeadlineExceeded and sometimes goes on to Flush. Callers see nondeterministic results, and tests that assert on this can flake. Fix: check b.done without blocking before the select."
+  },
+  {
+    "file": "packages/go/instrument.go",
+    "line": 210,
+    "summary": "isUnknownTool depends on the private wording of an SDK error (CodeInvalidParams plus the prefix \"unknown tool \" from server.go callTool).",
+    "failure_scenario": "After an SDK upgrade that rewords the message, calls with arbitrary client-chosen tool names get recorded again, which is the probe problem this check exists to prevent. The reverse also happens: a raw handler that returns its own InvalidParams error starting with \"unknown tool \" is silently skipped. Fix: add a test pinned to the SDK message, or record only names seen through tools/list or registration."
+  },
+  {
+    "file": "packages/go/instrument.go",
+    "line": 100,
+    "summary": "A handler panic passes through the middleware without an event. Node records a thrown handler error as success:false.",
+    "failure_scenario": "A Go tool handler panics on a nil deref. The SDK or process handles the panic, and no tool_call row is written. Crash-level failures never show up in success or error_kind stats, while the same bug in a Node server does. This is documented as deliberate. A defer that records the event and then re-panics would keep behavior unchanged and still record the failure."
+  },
+  {
+    "file": "README.md",
+    "line": 316,
+    "summary": "The buffering section says 'plus a best-effort flush on shutdown' right after saying Go has the same defaults. Go has no shutdown hook.",
+    "failure_scenario": "A Go user reads the root README, assumes queued events flush on exit like Node/Python, and never calls Handle.Close. Every event still buffered at process exit is lost. Fix: say Go needs an explicit Close."
+  },
+  {
+    "file": "packages/go/instrument.go",
+    "line": 55,
+    "summary": "Handle.Server is an exported mutable field that only echoes the *mcp.Server the caller passed in.",
+    "failure_scenario": "The field adds public API surface that has to stay stable after v0.1.0. A caller can reassign it with no effect, because the middleware is already attached to the original server. Removing it before the first release keeps the API smaller."
+  }
+]
+```</result>
+<usage><subagent_tokens>114070</subagent_tokens><tool_uses>28</tool_uses><duration_ms>249072</duration_ms></usage>
+</task-notification>
+
+---
+
+fix all issues, push & merge

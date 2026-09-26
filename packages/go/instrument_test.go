@@ -338,6 +338,30 @@ func TestDurationRoundsToNearestMillisecond(t *testing.T) {
 	}
 }
 
+func TestInputRequiredLegIsNotRecorded(t *testing.T) {
+	for _, protocol := range []string{"2025-11-25", "2026-07-28"} {
+		t.Run(protocol, func(t *testing.T) {
+			s := mcp.NewServer(&mcp.Implementation{Name: "test-server"}, nil)
+			h, sink := instrumentTest(t, s, Options{})
+			addRaw(s, "roots", func(_ context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+				if len(req.Params.InputResponses) == 0 {
+					return &mcp.CallToolResult{InputRequests: mcp.InputRequestMap{"roots": &mcp.ListRootsParams{}}}, nil
+				}
+				return &mcp.CallToolResult{}, nil
+			})
+			if _, err := connect(t, s, protocol).CallTool(context.Background(), &mcp.CallToolParams{Name: "roots"}); err != nil {
+				t.Fatal(err)
+			}
+			if err := h.Flush(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			if events := sink.snapshot(); len(events) != 1 || !events[0].Success {
+				t.Fatalf("events: %+v", events)
+			}
+		})
+	}
+}
+
 type userKey struct{}
 
 func TestResolverSeesContextFromMiddlewareAddedLater(t *testing.T) {

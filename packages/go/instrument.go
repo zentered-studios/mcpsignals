@@ -99,6 +99,11 @@ func (h *Handle) middleware(next mcp.MethodHandler) mcp.MethodHandler {
 		// Deliberately no recovery around next: handler errors/panics belong to the SDK.
 		result, err := next(ctx, method, req)
 		duration := time.Since(start)
+		if r, ok := result.(*mcp.CallToolResult); ok && r != nil && r.NeedsInput() {
+			// Not a completed invocation: the client answers the input requests
+			// and retries, and that continuation is recorded.
+			return result, err
+		}
 		// Identity and redaction run after the handler, as in Node/Python, so a
 		// slow resolver neither delays the handler nor shifts ts.
 		event := h.prepare(ctx, call, name, args)

@@ -142,8 +142,8 @@ is the **only** source of `user_id` and `org_id`. Use application-verified ident
 not untrusted tool arguments/client names. With the SDK's `auth.RequireBearerToken`,
 read `CallContext.TokenInfo` (for example `TokenInfo.UserID`). `CallContext.Header`
 holds a copy of the HTTP request headers. The resolver cannot see context values
-added by receiving middleware installed after `Instrument`, because later
-middleware wraps earlier middleware. Failure or panic
+added by receiving middleware installed before `Instrument`: that middleware
+runs inside mcpsignals. Failure or panic
 records null identity. Both callbacks run on the request goroutine, must be
 fast/nonblocking and concurrency-safe, and must not mutate shared configuration.
 The library does not log callback error text, which might contain secrets.

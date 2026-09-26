@@ -156,9 +156,11 @@ test('capabilities.tools: the handler McpServer installs in its constructor is r
 
 test('a tool registered before instrument() is recorded, and so is one registered after', async () => {
   const server = new McpServer({ name: 'test-server', version: '1.0.0' });
-  server.registerTool('early', { inputSchema: z.object({}) }, async () => ({
-    content: [{ type: 'text', text: 'ok' }]
-  }));
+  server.registerTool(
+    'early',
+    { inputSchema: z.object({}), annotations: { readOnlyHint: true } },
+    async () => ({ content: [{ type: 'text', text: 'ok' }] })
+  );
   const { events, flush } = instrumentInto(server);
   server.registerTool(
     'late',
@@ -178,6 +180,8 @@ test('a tool registered before instrument() is recorded, and so is one registere
       ['late', true]
     ]
   );
+  // The early tool's annotations never passed through the registerTool wrapper.
+  assert.equal(events[0].read_only_hint, null);
   assert.equal(events[1].read_only_hint, true);
 });
 

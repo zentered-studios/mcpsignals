@@ -103,6 +103,35 @@ async def test_unknown_tool_names_list_the_tools_once_not_per_call():
 
 
 @pytest.mark.asyncio
+async def test_a_failed_tool_listing_is_retried_on_the_next_miss():
+    server, sink = build_server()
+
+    @server.tool(annotations=ToolAnnotations(read_only_hint=True))
+    def lookup(q: str) -> str:
+        return q
+
+    calls = 0
+    original_list_tools = server.list_tools
+
+    async def flaky_list_tools():
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("listing failed")
+        return await original_list_tools()
+
+    server.list_tools = flaky_list_tools
+
+    async with Client(server) as client:
+        await client.call_tool("lookup", {"q": "hi"})
+        await client.call_tool("lookup", {"q": "hi"})
+        await asyncio.sleep(0.05)
+
+    assert sink.events[0].read_only_hint is None
+    assert sink.events[1].read_only_hint is True
+
+
+@pytest.mark.asyncio
 async def test_concurrent_calls_share_one_tool_listing():
     server, sink = build_server()
 

@@ -34,8 +34,9 @@ def search(query: str) -> str:
 Call `instrument()` any time before the server starts handling requests. It
 appends to `server.middleware`, and that chain is rebuilt from the live list
 on every request, so calling it before or after your `@server.tool()`
-definitions makes no difference. The Node.js package differs here: it wraps
-`registerTool`, so it has to run before any tool is registered.
+definitions makes no difference. The Node.js package differs here: it reads
+tool annotations and intent capture from wrapping `registerTool`, so it has
+to run before any tool is registered.
 
 With no sink configured it writes JSON lines to stdout. On a stdio
 transport pass `sinks=[ConsoleSink(stream=sys.stderr)]`, because the MCP

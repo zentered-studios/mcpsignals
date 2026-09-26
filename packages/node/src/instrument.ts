@@ -96,6 +96,13 @@ interface ToolsCallRequest {
 
 type ToolsCallHandler = (request: ToolsCallRequest, ctx: ToolCallContext) => unknown;
 
+/** The parts of the SDK's `Server` (and its `Protocol` base) the recorder hooks into. */
+interface LowLevelServerInternals {
+  _wrapHandler?: (method: string, handler: ToolsCallHandler) => ToolsCallHandler;
+  _requestHandlers?: Map<string, ToolsCallHandler>;
+  setRequestHandler: (method: unknown, ...rest: unknown[]) => unknown;
+}
+
 /** The intent-capture values a call carried, and its arguments without them. */
 type IntentFields = ReturnType<typeof extractAndStripIntent>;
 
@@ -150,16 +157,17 @@ function extractErrorMessage(result: ToolResultLike): string | null {
 }
 
 /**
- * Wraps an `McpServer` so every tool registered through it (after this call)
- * records a `tool_call` event. This is the library's one required call —
- * call it immediately after constructing the server and before registering
- * any tools, since it works by wrapping `registerTool` and the `tools/call`
- * handler McpServer installs on its first registration.
+ * Wraps an `McpServer` so every `tools/call` it answers records a
+ * `tool_call` event. This is the library's one required call. Call it
+ * immediately after constructing the server and before registering tools:
+ * a tool registered earlier is still recorded, but without its annotations
+ * and without intent capture, since those come from wrapping `registerTool`.
  *
- * Every `tools/call` the server answers is recorded, including ones that
- * never reach a tool callback: an unknown or disabled tool, and arguments
- * that fail the tool's `inputSchema`. `success` follows the result the
- * client receives, so a result McpServer rejects against `outputSchema` is
+ * Every `tools/call` the server answers is recorded once, including ones
+ * that never reach a tool callback: an unknown or disabled tool, a request
+ * the SDK rejects, and arguments that fail the tool's `inputSchema`.
+ * `success` follows what the client receives, so a result McpServer rejects
+ * against `outputSchema`, or the SDK rejects against the wire schema, is
  * recorded as failed.
  *
  * Nothing the library does around a tool call can change what the client
@@ -300,12 +308,12 @@ export function instrument(server: McpServer, options: InstrumentOptions): Instr
 
   /**
    * Runs one `tools/call` request with telemetry around it. This wraps the
-   * handler McpServer registers, not the tool callback, so it sees what the
-   * client sees: an unknown or disabled tool (a JSON-RPC error), an
-   * input-schema failure (an `isError` result, callback never runs), and an
-   * output-schema failure (an `isError` result, callback already returned
-   * success). A tool callback that throws reaches this layer as McpServer's
-   * `isError` result carrying the error message.
+   * handler the dispatcher calls, not the tool callback, so it sees what the
+   * client sees: an unknown or disabled tool or a result that fails the wire
+   * schema (a JSON-RPC error), an input-schema failure (an `isError` result,
+   * callback never runs), and an output-schema failure (an `isError` result,
+   * callback already returned success). A tool callback that throws reaches
+   * this layer as McpServer's `isError` result carrying the error message.
    */
   const observeToolsCall = async (
     request: ToolsCallRequest,
@@ -500,23 +508,44 @@ export function instrument(server: McpServer, options: InstrumentOptions): Instr
     return result;
   };
 
-  // McpServer installs its `tools/call` handler through the public
-  // `Server.setRequestHandler` the first time a tool is registered, which is
-  // after this call. Wrap that one registration; every other method passes
-  // through untouched.
-  const lowLevel = server.server;
-  const originalSetRequestHandler = lowLevel.setRequestHandler.bind(lowLevel) as (
-    ...args: unknown[]
-  ) => unknown;
-  lowLevel.setRequestHandler = ((method: unknown, ...rest: unknown[]) => {
-    const [handler] = rest;
-    if (method !== 'tools/call' || rest.length !== 1 || typeof handler !== 'function') {
-      return originalSetRequestHandler(method, ...rest);
-    }
-    return originalSetRequestHandler(method, (request: ToolsCallRequest, ctx: ToolCallContext) =>
-      observeToolsCall(request, ctx, handler as ToolsCallHandler)
-    );
-  }) as typeof lowLevel.setRequestHandler;
+  const observed =
+    (handler: ToolsCallHandler): ToolsCallHandler =>
+    (request, ctx) =>
+      observeToolsCall(request, ctx, handler);
+
+  // Record at the handler the dispatcher calls: the stored `tools/call` entry,
+  // one level above `Server._wrapHandler`. That layer is what the client
+  // receives: the SDK's request and wire-result validation (`-32602`), its
+  // input_required capability check, and on a 2025-era connection the legacy
+  // shim's rounds, which call the inner handler again and must stay one call.
+  // It also works whenever McpServer installed the handler: in its
+  // constructor when `capabilities.tools` is set, or on a registerTool that
+  // ran before this call. Both are SDK internals, present from 2.0.0; without
+  // them this falls back to wrapping the public `setRequestHandler`.
+  const lowLevel = server.server as unknown as LowLevelServerInternals;
+  // The SDK's own member names.
+  // oxlint-disable-next-line no-underscore-dangle
+  const originalWrapHandler = lowLevel._wrapHandler;
+  // oxlint-disable-next-line no-underscore-dangle
+  const storedHandlers = lowLevel._requestHandlers;
+  if (typeof originalWrapHandler === 'function' && storedHandlers instanceof Map) {
+    // oxlint-disable-next-line no-underscore-dangle
+    lowLevel._wrapHandler = function (this: unknown, method, handler) {
+      const wrapped = originalWrapHandler.call(this, method, handler);
+      return method === 'tools/call' ? observed(wrapped) : wrapped;
+    };
+    const installed = storedHandlers.get('tools/call');
+    if (typeof installed === 'function') storedHandlers.set('tools/call', observed(installed));
+  } else {
+    const originalSetRequestHandler = lowLevel.setRequestHandler.bind(lowLevel);
+    lowLevel.setRequestHandler = (method, ...rest) => {
+      const [handler] = rest;
+      if (method !== 'tools/call' || rest.length !== 1 || typeof handler !== 'function') {
+        return originalSetRequestHandler(method, ...rest);
+      }
+      return originalSetRequestHandler(method, observed(handler as ToolsCallHandler));
+    };
+  }
 
   return {
     server,

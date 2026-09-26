@@ -16,14 +16,12 @@ This module is **not yet tagged for release**. Once a Go release is published:
 go get github.com/zentered-studios/mcpsignals/packages/go@latest
 ```
 
-Until then, after this change merges, use `@main` instead of `@latest` to
-resolve a pseudo-version. For local evaluation before merge:
+Until then, use `@main` instead of `@latest` to resolve a pseudo-version. To
+try it from a local checkout:
 
 ```sh
 git clone https://github.com/zentered-studios/mcpsignals.git
-cd mcpsignals
-git switch feat/go-sdk-84
-cd packages/go
+cd mcpsignals/packages/go
 go test -race ./...
 go run ./examples/stdio
 ```

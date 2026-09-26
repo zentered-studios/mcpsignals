@@ -3,6 +3,7 @@ package mcpsignals
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"slices"
 )
 
@@ -32,7 +33,11 @@ func captureArguments(raw json.RawMessage, enabled bool, config Redaction) (out 
 	var args map[string]any
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.UseNumber()
-	if !json.Valid(raw) || dec.Decode(&args) != nil || args == nil {
+	if dec.Decode(&args) != nil || args == nil {
+		return nil
+	}
+	// One pass: trailing data after the object is invalid JSON arguments.
+	if _, err := dec.Token(); err != io.EOF {
 		return nil
 	}
 	if config.Redactor != nil {

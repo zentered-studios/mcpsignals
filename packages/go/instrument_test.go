@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/auth"
+	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -472,6 +473,25 @@ func TestMiddlewareTransport(t *testing.T) {
 		if got := sink.snapshot()[0].Transport; got == nil || *got != tc.want {
 			t.Fatalf("configured %q: got %v, want %s", tc.configured, got, tc.want)
 		}
+	}
+}
+
+func TestHandlerUnknownToolErrorIsRecorded(t *testing.T) {
+	// Only the SDK's exact rejection of this call's name is skipped.
+	sink := new(memorySink)
+	h := &Handle{buffer: newBuffer(t, BufferOptions{Manual: true, Sinks: []Sink{sink}}), options: Options{ServerName: "test"}}
+	req := &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{Name: "lookup"}}
+	for _, message := range []string{`unknown tool "lookup"`, `unknown tool "sku-9" in catalog`} {
+		next := func(context.Context, string, mcp.Request) (mcp.Result, error) {
+			return nil, &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: message}
+		}
+		_, _ = h.middleware(next)(context.Background(), "tools/call", req)
+	}
+	if err := h.Flush(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if events := sink.snapshot(); len(events) != 1 || *events[0].ErrorMessage != `unknown tool "sku-9" in catalog` {
+		t.Fatalf("events: %+v", events)
 	}
 }
 

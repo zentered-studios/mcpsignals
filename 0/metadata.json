@@ -1,0 +1,130 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "01M3FG8RXHDPWYZ0G7J0ACH2AB",
+  "session_id": "f567b086-46b4-4dac-909a-b1e23239bda9",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-26T18:40:04.0949Z",
+  "branch": "worktree-mcp-spec-alignment",
+  "checkpoints_count": 2,
+  "files_touched": [],
+  "agent": "Claude Code",
+  "model": "claude-opus-5-5",
+  "turn_id": "27ed77d10c4a",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 174,
+    "cache_creation_tokens": 190244,
+    "cache_read_tokens": 13122355,
+    "output_tokens": 52614,
+    "api_call_count": 86,
+    "subagent_tokens": {
+      "input_tokens": 138,
+      "cache_creation_tokens": 280674,
+      "cache_read_tokens": 6115073,
+      "output_tokens": 1754,
+      "api_call_count": 69
+    }
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "prompt-skill-claude-code-review-2026-09-26T17:54:21.085631Z",
+      "event_type": "prompt_invocation",
+      "skill": {
+        "name": "review"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "prompt_slash_command",
+        "confidence": "explicit"
+      },
+      "turn_id": "8ecb4996f989",
+      "timestamp": "2026-09-26T17:54:21.085631Z",
+      "native": {
+        "command": "/review"
+      },
+      "collapse": {
+        "target": "user_message",
+        "label": "/review",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_01GpGZwt7Lm8KzDCTybE2Gy8",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "patrick:review-fix-merge"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "27ed77d10c4a",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 56,
+        "end": 57,
+        "entry_ids": [
+          "f11f40ed-6501-4fbe-b8f5-842326ba2f33"
+        ],
+        "tool_use_id": "toolu_01GpGZwt7Lm8KzDCTybE2Gy8"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01GpGZwt7Lm8KzDCTybE2Gy8"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: patrick:review-fix-merge",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_01AKEpdCuTrWLJjQTYTcAR7P",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "agent-skills:ship"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "27ed77d10c4a",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 759,
+        "end": 760,
+        "entry_ids": [
+          "0dd703bf-7557-4b28-933c-ab585cf6f4b5"
+        ],
+        "tool_use_id": "toolu_01AKEpdCuTrWLJjQTYTcAR7P"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01AKEpdCuTrWLJjQTYTcAR7P"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: agent-skills:ship",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 36,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "packages/node/test/zz-scratch-double-instrument.test.ts": 36
+      }
+    }
+  ]
+}

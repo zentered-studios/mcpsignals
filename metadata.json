@@ -1,0 +1,31 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "01M3FG8RXHDPWYZ0G7J0ACH2AB",
+  "strategy": "manual-commit",
+  "branch": "worktree-mcp-spec-alignment",
+  "checkpoints_count": 2,
+  "files_touched": null,
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 174,
+    "cache_creation_tokens": 190244,
+    "cache_read_tokens": 13122355,
+    "output_tokens": 52614,
+    "api_call_count": 86,
+    "subagent_tokens": {
+      "input_tokens": 138,
+      "cache_creation_tokens": 280674,
+      "cache_read_tokens": 6115073,
+      "output_tokens": 1754,
+      "api_call_count": 69
+    }
+  }
+}

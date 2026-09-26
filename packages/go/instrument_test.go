@@ -328,8 +328,12 @@ func TestSlowResolverDoesNotDelayHandlerOrTimestamp(t *testing.T) {
 	}
 }
 
-func TestSerializedSizeMatchesMarshal(t *testing.T) {
-	r := &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "<b>界</b> & more"}}, StructuredContent: map[string]any{"n": 1}}
+func TestSerializedSizeMatchesJSONStringify(t *testing.T) {
+	// Node's JSON.stringify leaves <, > and & unescaped.
+	if got, want := serializedSize(map[string]any{"text": "<b>界</b> & more"}), len(`{"text":"<b>界</b> & more"}`); got != want {
+		t.Fatalf("got %d, want %d", got, want)
+	}
+	r := &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "plain"}}, StructuredContent: map[string]any{"n": 1}}
 	want, err := json.Marshal(r)
 	if err != nil {
 		t.Fatal(err)

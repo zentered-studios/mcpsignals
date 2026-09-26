@@ -220,11 +220,14 @@ type byteCounter int
 
 func (c *byteCounter) Write(p []byte) (int, error) { *c += byteCounter(len(p)); return len(p), nil }
 
-// serializedSize is len(json.Marshal(v)) without keeping a copy of the output.
+// serializedSize is the length of v encoded like Node's JSON.stringify, with
+// <, > and & unescaped. It keeps no copy of the output.
 func serializedSize(v any) (size int) {
 	defer func() { _ = recover() }()
 	var n byteCounter
-	if json.NewEncoder(&n).Encode(v) != nil {
+	enc := json.NewEncoder(&n)
+	enc.SetEscapeHTML(false)
+	if enc.Encode(v) != nil {
 		return 0
 	}
 	return int(n) - 1 // Encode appends a newline.

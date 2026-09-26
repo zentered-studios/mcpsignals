@@ -171,8 +171,9 @@ See [`schema/events.md`](../../schema/events.md) and the
   It rounds to the nearest millisecond, like Node.
 - `success` follows `CallToolResult.IsError`; an SDK/handler error returned without
   a result is also a failure, with `response_bytes: 0`.
-- `request_bytes` counts raw JSON argument bytes exposed to middleware (0 when
-  omitted). `response_bytes` counts JSON serialization of the result at the
+- `request_bytes` counts the arguments as compact JSON, without insignificant
+  whitespace, like Node's `JSON.stringify` (0 when omitted).
+  `response_bytes` counts JSON serialization of the result at the
   middleware boundary, including structured content. These are **not complete
   wire bytes**: SDK-added response metadata/JSON-RPC framing are excluded.
   Unserializable results record 0 without changing the result.

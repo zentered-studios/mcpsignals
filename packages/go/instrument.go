@@ -1,6 +1,7 @@
 package mcpsignals
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -122,7 +123,7 @@ func (h *Handle) middleware(next mcp.MethodHandler) mcp.MethodHandler {
 }
 
 func (h *Handle) prepare(ctx context.Context, req *mcp.CallToolRequest, name string, args json.RawMessage) (e ToolCallEvent) {
-	e = ToolCallEvent{EventType: "tool_call", ServerName: h.options.ServerName, ServerVersion: optional(h.options.ServerVersion), ToolName: truncate(name, 128), RequestBytes: len(args)}
+	e = ToolCallEvent{EventType: "tool_call", ServerName: h.options.ServerName, ServerVersion: optional(h.options.ServerVersion), ToolName: truncate(name, 128), RequestBytes: compactSize(args)}
 	// Telemetry never changes the invocation, even if SDK metadata access fails.
 	defer func() { _ = recover() }()
 	e.Arguments = captureArguments(args, h.options.CaptureArguments, h.options.Redaction)
@@ -220,6 +221,16 @@ func durationMS(d time.Duration) int64 { return d.Round(time.Millisecond).Millis
 type byteCounter int
 
 func (c *byteCounter) Write(p []byte) (int, error) { *c += byteCounter(len(p)); return len(p), nil }
+
+// compactSize is the length of args without insignificant whitespace, like
+// Node's JSON.stringify of the parsed arguments. Invalid JSON counts as sent.
+func compactSize(args json.RawMessage) int {
+	var b bytes.Buffer
+	if json.Compact(&b, args) != nil {
+		return len(args)
+	}
+	return b.Len()
+}
 
 // serializedSize is the length of v encoded like Node's JSON.stringify, with
 // <, > and & unescaped. It keeps no copy of the output.

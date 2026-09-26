@@ -346,6 +346,28 @@ func TestSerializedSizeMatchesJSONStringify(t *testing.T) {
 	}
 }
 
+func TestRequestBytesIgnoreWhitespace(t *testing.T) {
+	// Node measures JSON.stringify of the parsed arguments, which is compact.
+	for raw, want := range map[string]int{"{\n  \"q\": \"a b\"\n}": len(`{"q":"a b"}`), "": 0, "null": 4, "{bad": 4} {
+		if got := compactSize(json.RawMessage(raw)); got != want {
+			t.Fatalf("compactSize(%q) = %d, want %d", raw, got, want)
+		}
+	}
+	sink := new(memorySink)
+	h := &Handle{buffer: newBuffer(t, BufferOptions{Manual: true, Sinks: []Sink{sink}}), options: Options{ServerName: "test"}}
+	req := &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{Name: "test", Arguments: json.RawMessage("{\n  \"q\": 1\n}")}}
+	ok := func(context.Context, string, mcp.Request) (mcp.Result, error) { return &mcp.CallToolResult{}, nil }
+	if _, err := h.middleware(ok)(context.Background(), "tools/call", req); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.Flush(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := sink.snapshot()[0].RequestBytes; got != len(`{"q":1}`) {
+		t.Fatalf("request_bytes = %d", got)
+	}
+}
+
 func TestDurationRoundsToNearestMillisecond(t *testing.T) {
 	for d, want := range map[time.Duration]int64{400 * time.Microsecond: 0, 900 * time.Microsecond: 1, 1500 * time.Microsecond: 2, 2499 * time.Microsecond: 2} {
 		if got := durationMS(d); got != want {

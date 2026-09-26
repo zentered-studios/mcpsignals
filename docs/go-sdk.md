@@ -16,7 +16,7 @@ Reviewed on 2026-09-26 against official SDK **v1.8.0**, commit
 | [SDK README](https://github.com/modelcontextprotocol/go-sdk/blob/v1.8.0/README.md) | Official `mcp` package; supported protocol revisions through 2026-07-28. |
 | [Server tool docs](https://github.com/modelcontextprotocol/go-sdk/blob/v1.8.0/docs/server.md#tools) | Both raw `Server.AddTool` and generic `mcp.AddTool` remain unchanged. Generic handlers convert ordinary errors to `IsError` results. |
 | [Middleware example](https://github.com/modelcontextprotocol/go-sdk/blob/v1.8.0/examples/server/middleware/main.go) and [server.go](https://github.com/modelcontextprotocol/go-sdk/blob/v1.8.0/mcp/server.go) | Use `AddReceivingMiddleware`; no registration monkey-patching. Server implementation metadata is private. |
-| [shared.go](https://github.com/modelcontextprotocol/go-sdk/blob/v1.8.0/mcp/shared.go) | Use request-local `ClientInfo()`, `RequestExtra.Header`, and `ServerSession.ID()`. Never read identity from argument/header guesses. |
+| [shared.go](https://github.com/modelcontextprotocol/go-sdk/blob/v1.8.0/mcp/shared.go) | Use request-local `ClientInfo()`, `RequestExtra.Header`, `RequestExtra.TokenInfo`, and `ServerSession.ID()`. Never read identity from argument/header guesses; pass token info and headers to the application's resolver. |
 | [Protocol docs](https://github.com/modelcontextprotocol/go-sdk/blob/v1.8.0/docs/protocol.md) and [protocol types](https://github.com/modelcontextprotocol/go-sdk/blob/v1.8.0/mcp/protocol.go) | Legacy handshake and newer stateless metadata differ; cancellation flows through context; wire-only response annotations happen after receiving middleware. |
 | [Streamable HTTP implementation](https://github.com/modelcontextprotocol/go-sdk/blob/v1.8.0/mcp/streamable.go) | New protocol HTTP tests must enable `Stateless`; default stateful HTTP negotiates legacy behavior. |
 | [MCP tools specification](https://modelcontextprotocol.io/specification/2025-11-25/server/tools#error-handling) | Tool errors use `isError`; protocol errors are distinct. Preserve both outcomes. |
@@ -28,8 +28,9 @@ Reviewed on 2026-09-26 against official SDK **v1.8.0**, commit
 
 - Middleware records one completed invocation, not an aggregated conversation.
   SDK rejection before dispatch and handler panics are outside event coverage.
-- Explicit server name/version avoids reflection/private SDK fields. Unknown
-  transport/session data remains null. `intent`/`agent_id` remain null.
+- Explicit server name/version avoids reflection/private SDK fields. Transport
+  defaults to `stdio` without HTTP headers, as in Node/Python. Unknown session
+  data remains null. `intent`/`agent_id` remain null.
 - Snapshot captured arguments before invoking the next handler. Redactors cannot
   mutate actual arguments; serialization failure fails closed. Large JSON
   integers retain precision via `json.Number`.

@@ -742,6 +742,80 @@ async def test_transport_is_http_over_the_streamable_http_app():
     assert event.transport == "http"
 
 
+# Session id: on a stateful streamable HTTP connection the server issues an
+# `Mcp-Session-Id` on `initialize` and the client sends it on every later
+# request. That id is the transport's session, so it lands on `session_id`
+# without intent capture, and wins over a caller-supplied one.
+
+
+async def _stateful_tools_call(server, arguments: str) -> tuple[httpx.Response, str]:
+    app = Starlette(routes=[Mount("/", app=server.streamable_http_app())])
+    headers = {"Content-Type": "application/json", "Accept": "application/json, text/event-stream"}
+    initialize = (
+        '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25",'
+        '"capabilities":{},"clientInfo":{"name":"curl","version":"1.0"}}}'
+    )
+    async with server.session_manager.run():
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://127.0.0.1:8001"
+        ) as client:
+            init = await client.post("/mcp", headers=headers, content=initialize)
+            assert init.status_code == 200, init.text
+            session_headers = {
+                **headers,
+                "Mcp-Session-Id": init.headers["mcp-session-id"],
+                "MCP-Protocol-Version": "2025-11-25",
+            }
+            await client.post(
+                "/mcp",
+                headers=session_headers,
+                content='{"jsonrpc":"2.0","method":"notifications/initialized"}',
+            )
+            response = await client.post(
+                "/mcp",
+                headers=session_headers,
+                content=(
+                    '{"jsonrpc":"2.0","id":2,"method":"tools/call",'
+                    f'"params":{{"name":"add_note","arguments":{arguments}}}}}'
+                ),
+            )
+        await asyncio.sleep(0.05)
+    return response, init.headers["mcp-session-id"]
+
+
+@pytest.mark.asyncio
+async def test_session_id_comes_from_the_streamable_http_session_header():
+    server, sink = build_server()
+
+    @server.tool()
+    def add_note(text: str) -> str:
+        return f"Saved: {text}"
+
+    response, session_id = await _stateful_tools_call(server, '{"text":"hi"}')
+
+    assert response.status_code == 200, response.text
+    assert len(sink.events) == 1
+    assert sink.events[0].session_id == session_id
+
+
+@pytest.mark.asyncio
+async def test_transport_session_id_wins_over_the_intent_capture_value():
+    server, sink = build_server(intent_capture=True)
+
+    @server.tool()
+    def add_note(text: str) -> str:
+        return f"Saved: {text}"
+
+    response, session_id = await _stateful_tools_call(
+        server, '{"text":"hi","session_id":"from-agent","intent":"testing"}'
+    )
+
+    assert response.status_code == 200, response.text
+    event = sink.events[0]
+    assert event.session_id == session_id
+    assert event.intent == "testing"
+
+
 # A redactor is a full override: whatever it returns is recorded verbatim, and
 # nothing stops it returning a value `json` cannot encode. Every sink
 # re-serializes `arguments` on its way out (`json.dumps` in postgres and

@@ -5,19 +5,13 @@ present on both `MCPServer` and the low-level `Server` - the same mechanism
 works for both, no separate code paths needed. See
 https://py.sdk.modelcontextprotocol.io/v2/advanced/middleware/.
 
-Known SDK limitation (first verified against mcp==2.0.0, re-checked against
-the mcp==2.2.0 that a fresh `uv sync` resolves; mcp/server/context.py):
-`ServerRequestContext` - what middleware receives - does not publicly expose
-the transport's connection-level session id or a `connection` accessor
-(only the handler-facing `Context` class does, via a private `Connection`
-it doesn't share with middleware; `ctx.session` is a `ServerSession`, which
-has no session id either). We do not reach into that private attribute. As
-a result `session_id` on emitted events is only ever populated from the
-optional intent-capture value the calling agent supplies - it is `None` for
-calls where intent capture is off or the caller didn't pass one, even though
-the connection may well have a real session id.
-Track https://github.com/modelcontextprotocol/python-sdk for this being
-exposed to middleware in a future release.
+`session_id`: `ServerRequestContext` - what middleware receives - has no
+session id accessor (verified against mcp==2.2.0; mcp/server/context.py).
+It does carry the HTTP request on the streamable HTTP path, so the
+middleware reads the `Mcp-Session-Id` header the client echoes back on
+every request after `initialize`. On stdio there is no transport session,
+and `session_id` comes only from the optional intent-capture value the
+calling agent supplies.
 
 Guarantee: nothing the library does around a tool call can change what the
 client receives. The real handler always runs, its result is returned
@@ -100,6 +94,14 @@ def _content_to_text(content: Any) -> str | None:
         if text:
             parts.append(text)
     return "\n".join(parts) if parts else None
+
+
+def _session_id_header(request: Any) -> str | None:
+    """The `Mcp-Session-Id` header of an HTTP request, capped, or None."""
+    headers = getattr(request, "headers", None)
+    if headers is None:
+        return None
+    return bounded(headers.get("mcp-session-id"), MAX_IDENTIFIER_LENGTH) or None
 
 
 def _serialize_for_bytes(value: Any) -> bytes:
@@ -231,7 +233,12 @@ def instrument(
             client_name = bounded(client_info.name, MAX_IDENTIFIER_LENGTH)
             client_version = bounded(client_info.version, MAX_IDENTIFIER_LENGTH)
 
-        transport = "http" if getattr(ctx, "request", None) is not None else "stdio"
+        http_request = getattr(ctx, "request", None)
+        transport = "http" if http_request is not None else "stdio"
+        # The transport's session: the `Mcp-Session-Id` header a stateful
+        # streamable HTTP client echoes back on every request. A stateless
+        # server accepts any value here, so it takes the identifier cap.
+        transport_session_id = _session_id_header(http_request)
 
         async def _record(ts: datetime, error: BaseException | None, result: Any) -> None:
             # First thing: the handler has just settled, so this is the
@@ -305,7 +312,7 @@ def instrument(
                 server_name=server_name,
                 server_version=server_version,
                 tool_name=tool_name,
-                session_id=extracted.get("session_id"),
+                session_id=transport_session_id or extracted.get("session_id"),
                 agent_id=extracted.get("agent_id"),
                 client_name=client_name,
                 client_version=client_version,

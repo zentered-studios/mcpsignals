@@ -144,6 +144,16 @@ func TestBufferFailureIsolationAndCapacity(t *testing.T) {
 	}
 }
 
+func TestBufferPushAfterCloseIsCounted(t *testing.T) {
+	b := newBuffer(t, BufferOptions{Manual: true})
+	if err := b.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if b.Push(ToolCallEvent{}) || b.Stats().Dropped != 1 {
+		t.Fatal(b.Stats())
+	}
+}
+
 func TestBufferCanceledFlushPreservesQueue(t *testing.T) {
 	s := new(memorySink)
 	b := newBuffer(t, BufferOptions{Manual: true, Sinks: []Sink{s}})

@@ -20,7 +20,7 @@ type BufferOptions struct {
 
 // BufferStats reports cumulative delivery failures, without logging payloads.
 type BufferStats struct {
-	Dropped    uint64
+	Dropped    uint64 // Rejected because the queue was full or the buffer closed.
 	SinkErrors uint64
 }
 
@@ -72,15 +72,12 @@ func NewEventBuffer(o BufferOptions) (*EventBuffer, error) {
 	return b, nil
 }
 
-// Push accepts an immutable event snapshot. False means closed or full;
-// overflow is counted in Stats. Callers must not mutate accepted event data.
+// Push accepts an immutable event snapshot. False means closed or full; both
+// are counted in Stats.Dropped. Callers must not mutate accepted event data.
 func (b *EventBuffer) Push(e ToolCallEvent) bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if b.closed {
-		return false
-	}
-	if len(b.queue) >= b.options.MaxQueueSize {
+	if b.closed || len(b.queue) >= b.options.MaxQueueSize {
 		b.stats.Dropped++
 		return false
 	}

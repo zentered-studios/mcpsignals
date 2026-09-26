@@ -98,6 +98,7 @@ if err := telemetry.Close(ctx); err != nil {
 - One background worker performs sink writes, never the request goroutine.
   The queue drops the newest event on overflow; an in-flight batch is separate.
   `telemetry.Stats()` reports `Dropped` and `SinkErrors`, without logging payloads.
+  `Dropped` counts events rejected by a full queue or a closed buffer.
 - `Buffer.Manual: true` disables **both size and interval triggers**, starts no
   worker, and requires explicit `Flush(ctx)`/`Close(ctx)`.
 - `Flush` waits for earlier writes, then attempts the queued batch. Calls are

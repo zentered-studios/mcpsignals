@@ -1,0 +1,28 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "01M3FFB6JW9VX476FPW8CJ9F46",
+  "strategy": "manual-commit",
+  "branch": "feat/go-sdk-84-v2",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "packages/go/README.md",
+    "packages/go/instrument.go",
+    "packages/go/instrument_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 8,
+    "cache_creation_tokens": 6634,
+    "cache_read_tokens": 495609,
+    "output_tokens": 3365,
+    "api_call_count": 4
+  }
+}

@@ -11,7 +11,7 @@ import (
 // BufferOptions configures best-effort delivery. Zero values select defaults.
 type BufferOptions struct {
 	Sinks         []Sink
-	BufferSize    int           // Automatic size threshold; default 20.
+	BufferSize    int           // Automatic size threshold; default 20, capped at MaxQueueSize.
 	FlushInterval time.Duration // Default 5 seconds.
 	Manual        bool          // Disable all automatic writes, including size-triggered writes.
 	MaxQueueSize  int           // Drop newest on overflow; default 1000 pending events.
@@ -60,6 +60,10 @@ func NewEventBuffer(o BufferOptions) (*EventBuffer, error) {
 	}
 	if o.MaxQueueSize == 0 {
 		o.MaxQueueSize = 1000
+	}
+	// A threshold above capacity is never reached: the queue fills and drops.
+	if o.BufferSize > o.MaxQueueSize {
+		o.BufferSize = o.MaxQueueSize
 	}
 	if o.WriteTimeout == 0 {
 		o.WriteTimeout = 10 * time.Second

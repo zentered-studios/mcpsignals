@@ -93,7 +93,8 @@ if err := telemetry.Close(ctx); err != nil {
 ```
 
 - Defaults: size threshold **20**, interval **5 seconds**, queue capacity
-  **1000 pending events**, automatic write timeout **10 seconds**.
+  **1000 pending events**, automatic write timeout **10 seconds**. A size
+  threshold above the queue capacity is lowered to the capacity.
 - One background worker performs sink writes, never the request goroutine.
   The queue drops the newest event on overflow; an in-flight batch is separate.
   `telemetry.Stats()` reports `Dropped` and `SinkErrors`, without logging payloads.

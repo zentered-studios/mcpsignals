@@ -80,6 +80,21 @@ func TestBufferManualConcurrentDrain(t *testing.T) {
 	}
 }
 
+func TestBufferSizeTriggerFiresWhenQueueIsSmaller(t *testing.T) {
+	// MaxQueueSize 3 with the default BufferSize of 20: a full queue must
+	// still wake the worker instead of dropping until the next tick.
+	written := make(chan struct{}, 1)
+	b := newBuffer(t, BufferOptions{MaxQueueSize: 3, FlushInterval: time.Hour, Sinks: []Sink{sinkFunc(func(context.Context, []ToolCallEvent) error { written <- struct{}{}; return nil })}})
+	for range 3 {
+		b.Push(ToolCallEvent{})
+	}
+	select {
+	case <-written:
+	case <-time.After(time.Second):
+		t.Fatal("no size-triggered flush")
+	}
+}
+
 func TestBufferAutomaticTriggers(t *testing.T) {
 	for _, mode := range []string{"size", "interval"} {
 		t.Run(mode, func(t *testing.T) {

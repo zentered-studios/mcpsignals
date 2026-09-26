@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -254,6 +255,52 @@ func TestSDKHTTPMetadata(t *testing.T) {
 				t.Fatal("invented stateless session")
 			}
 		})
+	}
+}
+
+type headerTransport struct{ header http.Header }
+
+func (t headerTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	r = r.Clone(r.Context())
+	for k, v := range t.header {
+		r.Header[k] = v
+	}
+	return http.DefaultTransport.RoundTrip(r)
+}
+
+func TestSDKBearerTokenReachesResolver(t *testing.T) {
+	s := mcp.NewServer(&mcp.Implementation{Name: "test-server"}, nil)
+	h, sink := instrumentTest(t, s, Options{ResolveIdentity: func(_ context.Context, c CallContext) (Identity, error) {
+		if c.TokenInfo == nil {
+			return Identity{}, errors.New("no token")
+		}
+		return Identity{UserID: c.TokenInfo.UserID, OrgID: c.Header.Get("X-Org")}, nil
+	}})
+	addRaw(s, "ok", func(context.Context, *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		return &mcp.CallToolResult{}, nil
+	})
+	verify := func(_ context.Context, token string, _ *http.Request) (*auth.TokenInfo, error) {
+		return &auth.TokenInfo{UserID: "user-" + token, Expiration: time.Now().Add(time.Hour)}, nil
+	}
+	handler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return s }, nil)
+	httpServer := httptest.NewServer(auth.RequireBearerToken(verify, nil)(handler))
+	defer httpServer.Close()
+	client := mcp.NewClient(&mcp.Implementation{Name: "http-client", Version: "1"}, nil)
+	httpClient := &http.Client{Transport: headerTransport{http.Header{"Authorization": {"Bearer abc"}, "X-Org": {"org-1"}}}}
+	cs, err := client.Connect(context.Background(), &mcp.StreamableClientTransport{Endpoint: httpServer.URL, HTTPClient: httpClient}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cs.Close()
+	if _, err := cs.CallTool(context.Background(), &mcp.CallToolParams{Name: "ok"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.Flush(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	e := sink.snapshot()[0]
+	if e.UserID == nil || *e.UserID != "user-abc" || e.OrgID == nil || *e.OrgID != "org-1" {
+		t.Fatal(e)
 	}
 }
 

@@ -239,6 +239,7 @@ go build ./...
 ```
 
 The subprocess test builds and runs the stdio example with an official SDK client.
-HTTP tests use loopback. The release workflow publishes this module by pushing a
-`packages/go/vX.Y.Z` tag with the same version as each root release. See
+HTTP tests use loopback. The release workflow's approval-gated `go-publish` job
+publishes this module by pushing a `packages/go/vX.Y.Z` tag with the same
+version as each root release. See
 [publishing](../../docs/go-sdk.md#publishing).

@@ -61,6 +61,15 @@ jobs:
       - run: npm run build --workspace packages/node
       - run: npm test --workspace packages/node
 
+      # The Go module is tagged from this same commit by go-publish below, so
+      # its suite gates the release like the Node one above.
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: packages/go/go.mod
+          cache-dependency-path: packages/go/go.sum
+      - run: go vet ./... && go test -race ./...
+        working-directory: packages/go
+
       - run: npx semantic-release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -79,32 +88,6 @@ jobs:
             echo "released=false" >> "$GITHUB_OUTPUT"
             echo "No release this run - nothing to publish."
           fi
-
-      # Go has no registry: a packages/go/vX.Y.Z tag publishes the module, and
-      # proxy.golang.org fetches it on first request. The tag shares the root
-      # version and commit. Go puts major versions 2+ in the module path, so a
-      # release whose major does not match go.mod's /vN suffix stops here,
-      # before the tag exists: a published Go tag can never be moved.
-      - name: Tag the Go module
-        if: steps.artifacts.outputs.released == 'true'
-        run: |
-          set -euo pipefail
-          root_tag=$(git tag --points-at HEAD --list 'v*')
-          if ! [[ "$root_tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Expected exactly one vX.Y.Z tag on HEAD, found: ${root_tag:-none}" >&2
-            exit 1
-          fi
-          major=${root_tag#v}; major=${major%%.*}
-          module=$(sed -n 's/^module //p' packages/go/go.mod)
-          expected=github.com/zentered-studios/mcpsignals/packages/go
-          if [ "$major" -ge 2 ]; then expected="$expected/v$major"; fi
-          if [ "$module" != "$expected" ]; then
-            echo "Release $root_tag needs module path $expected in packages/go/go.mod, found $module" >&2
-            exit 1
-          fi
-          # Lightweight, like semantic-release's own tag: the runner has no git identity.
-          git tag "packages/go/$root_tag"
-          git push origin "packages/go/$root_tag"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: steps.artifacts.outputs.released == 'true'
@@ -173,9 +156,9 @@ jobs:
 
   # Runs in parallel with npm-publish (both depend only on release) rather than
   # chained behind it: each has its own required-reviewer gate on its
-  # environment (npm-publish, pypi), so chaining them would just make one
+  # environment (npm-publish, pypi, go-publish), so chaining them would just make one
   # approval wait on the other for no reason. Tradeoff: if one publish fails
-  # or is rejected after the other has already published, the two registries
+  # or is rejected after another has already published, the registries
   # end up out of sync for that version - same ordering caveat as
   # npm-publish, rerun the failed job rather than cutting a new version.
   pypi:
@@ -195,3 +178,70 @@ jobs:
       # action mints a short-lived OIDC token and PyPI verifies it against the
       # trusted publisher registered for the project.
       - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+
+  # Go has no registry: a packages/go/vX.Y.Z tag publishes the module, and
+  # proxy.golang.org fetches it on first request. The tag shares the root
+  # version and the release commit. Runs in parallel with npm-publish and pypi
+  # behind its own required-reviewer gate, with the same ordering caveat:
+  # rerun this job rather than cutting a new version. A published Go tag can
+  # never be moved, so every check below runs before the tag is pushed.
+  go-publish:
+    needs: release
+    if: needs.release.outputs.released == 'true'
+    runs-on: ubuntu-latest
+    environment: go-publish
+    permissions:
+      contents: write # push the packages/go/vX.Y.Z tag
+    steps:
+      # fetch-depth: 0 fetches the root tag semantic-release pushed onto this
+      # commit. Credentials stay persisted: the tag is pushed over git.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: packages/go/go.mod
+          cache: false
+
+      # Go puts major versions 2+ in the module path, so a release whose major
+      # does not match go.mod's /vN suffix stops here, before the tag exists.
+      - name: Tag the Go module
+        id: tag
+        run: |
+          set -euo pipefail
+          root_tag=$(git tag --points-at HEAD --list 'v*')
+          if ! [[ "$root_tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Expected exactly one vX.Y.Z tag on HEAD, found: ${root_tag:-none}" >&2
+            exit 1
+          fi
+          major=${root_tag#v}; major=${major%%.*}
+          module=$(sed -n 's/^module //p' packages/go/go.mod)
+          expected=github.com/zentered-studios/mcpsignals/packages/go
+          if [ "$major" -ge 2 ]; then expected="$expected/v$major"; fi
+          if [ "$module" != "$expected" ]; then
+            echo "Release $root_tag needs module path $expected in packages/go/go.mod, found $module" >&2
+            exit 1
+          fi
+          # Lightweight, like semantic-release's own tag: the runner has no git identity.
+          git tag "packages/go/$root_tag"
+          git push origin "packages/go/$root_tag"
+          echo "module=$module" >> "$GITHUB_OUTPUT"
+          echo "version=$root_tag" >> "$GITHUB_OUTPUT"
+
+      # The first proxy request fetches and caches the version, which is what
+      # makes it installable and lets pkg.go.dev index it. Retries cover the
+      # delay between the tag push and GitHub serving it to the proxy.
+      - name: Verify the module on proxy.golang.org
+        working-directory: ${{ runner.temp }}
+        env:
+          MODULE: ${{ steps.tag.outputs.module }}
+          VERSION: ${{ steps.tag.outputs.version }}
+          GOPROXY: https://proxy.golang.org
+        run: |
+          for attempt in 1 2 3 4 5; do
+            if go list -m "$MODULE@$VERSION"; then exit 0; fi
+            echo "Attempt $attempt: $MODULE@$VERSION not on the proxy yet" >&2
+            sleep 30
+          done
+          exit 1

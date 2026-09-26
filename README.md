@@ -305,7 +305,8 @@ rely on intent-capture session ids.
 
 Events are batched in memory, not written one per call. Node and Python take
 the same two knobs. Go has the same defaults, but its manual mode disables the
-size trigger too; see the
+size trigger too. Go has no shutdown hook: call `Close` on the handle before
+exit, or buffered events are lost. See the
 [Go guide](packages/go/README.md#lifecycle-and-delivery).
 
 | | Node.js | Python | Default |
@@ -313,7 +314,8 @@ size trigger too; see the
 | Flush after N events | `bufferSize` | `buffer_size` | 20 |
 | Flush every N | `flushIntervalMs` | `flush_interval_s` | 5000 ms / 5.0 s |
 
-Whichever comes first wins, plus a best-effort flush on shutdown. Passing
+Whichever comes first wins, plus a best-effort flush on shutdown in Node and
+Python. Passing
 `null` / `None` as the interval switches to manual mode, which drops both
 the timer and the shutdown hook and leaves every flush to you. That is the
 right setting on request-scoped runtimes, covered in the

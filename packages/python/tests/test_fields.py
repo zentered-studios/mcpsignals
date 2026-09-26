@@ -103,6 +103,39 @@ async def test_unknown_tool_names_list_the_tools_once_not_per_call():
 
 
 @pytest.mark.asyncio
+async def test_concurrent_calls_share_one_tool_listing():
+    server, sink = build_server()
+
+    @server.tool(annotations=ToolAnnotations(read_only_hint=True))
+    def first(q: str) -> str:
+        return q
+
+    @server.tool(annotations=ToolAnnotations(read_only_hint=True))
+    def second(q: str) -> str:
+        return q
+
+    original_list_tools = server.list_tools
+
+    async def slow_list_tools():
+        await asyncio.sleep(0.05)
+        return await original_list_tools()
+
+    server.list_tools = slow_list_tools
+
+    async with Client(server) as client:
+        await asyncio.gather(
+            client.call_tool("first", {"q": "hi"}),
+            client.call_tool("second", {"q": "hi"}),
+        )
+        await asyncio.sleep(0.05)
+
+    # The second call must wait for the listing the first one started, not
+    # find the cache marked as listed and record null hints.
+    assert sorted(e.tool_name for e in sink.events) == ["first", "second"]
+    assert [e.read_only_hint for e in sink.events] == [True, True]
+
+
+@pytest.mark.asyncio
 async def test_tool_hints_follow_a_tool_removed_and_added_again():
     server, sink = build_server()
 

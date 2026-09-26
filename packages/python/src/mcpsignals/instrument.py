@@ -25,6 +25,7 @@ arguments. A sink failure is handled separately by EventBuffer, also logged
 once per sink.
 """
 
+import asyncio
 import inspect
 import json
 import logging
@@ -219,7 +220,9 @@ def instrument(
     # re-added with other annotations is read fresh. On a low-level `Server`
     # the hints are null until the client calls `tools/list`.
     tool_hints: dict[str, ToolHints] = {}
-    listed = False
+    # The one listing since the last registration change. Concurrent misses
+    # await the same task, so none of them reads a half-filled cache.
+    listing: asyncio.Task[None] | None = None
 
     def _remember_hints(tools: Any) -> None:
         for tool in tools or []:
@@ -227,17 +230,32 @@ def instrument(
             if name is not None:
                 tool_hints[name] = hints
 
+    async def _list_hints() -> None:
+        tools = await server.list_tools()
+        # A registration change while this ran makes the result stale.
+        if listing is asyncio.current_task():
+            _remember_hints(tools)
+
     async def _hints_for(name: str) -> ToolHints:
-        nonlocal listed
-        if name not in tool_hints and not listed and isinstance(server, MCPServer):
-            listed = True
-            _remember_hints(await server.list_tools())
+        nonlocal listing
+        if name not in tool_hints and isinstance(server, MCPServer):
+            if listing is None:
+                listing = asyncio.ensure_future(_list_hints())
+            task = listing
+            try:
+                # Shielded: a cancelled call must not cancel the shared listing.
+                await asyncio.shield(task)
+            except Exception:
+                # A failed listing is retried on the next miss.
+                if listing is task:
+                    listing = None
+                raise
         return tool_hints.get(name, (None, None))
 
     def _forget_hints() -> None:
-        nonlocal listed
+        nonlocal listing
         tool_hints.clear()
-        listed = False
+        listing = None
 
     if isinstance(server, MCPServer):
         # `@server.tool()` registers through `add_tool`, so this sees every change.

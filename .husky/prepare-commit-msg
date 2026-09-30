@@ -1,2 +1,0 @@
-# Entire CLI: add the checkpoint trailer to the commit message
-if command -v entire >/dev/null 2>&1; then entire hooks git prepare-commit-msg "$1" "$2" || true; else :; fi

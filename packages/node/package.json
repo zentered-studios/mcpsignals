@@ -61,12 +61,12 @@
     "@modelcontextprotocol/client": "^2.1.0",
     "@modelcontextprotocol/server": "^2.1.0",
     "@opentelemetry/api": "^1.9.0",
-    "@types/node": "^26.5.1",
+    "@types/node": "^26.6.3",
     "@types/pg": "^8.11.0",
     "pg": "^8.11.0",
     "tsup": "^8.3.0",
-    "tsx": "^4.23.13",
-    "typescript": "^5.9.0",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
     "zod": "^4.6.5"
   },
   "keywords": [

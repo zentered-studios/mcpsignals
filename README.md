@@ -96,17 +96,22 @@ The sink, intent-capture, and lifecycle examples below target Node/Python; see t
 
 ## Why this exists instead of a hosted analytics product
 
-AgentCat, PostHog's MCP analytics, and Sentry all do a version of this by
-shipping your agent traffic to their cloud and charging per session, and
-they'll get you a dashboard faster than we will. Use this instead when your
-tool arguments cannot go to a third party.
+AgentCat, PostHog's MCP analytics, and Sentry all do a version of this, and
+they'll get you a dashboard faster than we will. PostHog and Sentry ship your
+agent traffic to their cloud. AgentCat's SDK is MIT-licensed and can run with a
+`null` project ID to forward telemetry only, through an OTLP exporter to your
+own collector, with redaction hooks
+([agentcat-typescript-sdk](https://github.com/agentcathq/agentcat-typescript-sdk)).
+Use mcpsignals when you want one event contract across Node, Python, and Go,
+written straight into your own warehouse tables, with argument capture off by
+default.
 
-| | mcpsignals | AgentCat / PostHog / Sentry |
-|---|---|---|
-| Where data lives | your own Postgres/BigQuery/ClickHouse/OTLP collector | their cloud |
-| Pricing | free, it's a library | per-session or per-event |
-| Dashboard | none - bring your own BI tool | included |
-| Account/API key | none | required |
+| | mcpsignals | AgentCat | PostHog / Sentry |
+|---|---|---|---|
+| Where data lives | your own Postgres/BigQuery/ClickHouse/OTLP collector | their cloud, or your OTLP collector with a `null` project ID | their cloud |
+| Pricing | free, it's a library | MIT SDK; hosted product is free for qualified open source projects | per-session or per-event |
+| Dashboard | none - bring your own BI tool | included in the hosted product | included |
+| Account/API key | none | optional for forwarding only | required |
 
 ## Argument capture is opt-in, and redacted by default
 

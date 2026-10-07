@@ -94,6 +94,41 @@ transport, where there is no transport session id, that means the event can
 carry a session id the resolver never saw. Do not key identity off
 `sessionId` alone if you rely on intent-capture session ids.
 
+## Instrumentation error diagnostics
+
+By default, a telemetry failure logs its raw error to `console.error` once
+per `instrument()` call. That error can contain tool arguments, even with
+`captureArguments: false`: that option controls event fields, not this
+diagnostic. Supply `onError` to decide what reaches your logs:
+
+```ts
+instrument(server, {
+  serverName: 'my-server',
+  sinks: [consoleSink()],
+  onError: step => {
+    console.error(`[telemetry] ${step} failed`);
+  }
+});
+```
+
+The hook receives a `TelemetryErrorStep` and the raw error. The step is one
+of `request byte count`, `response byte count`, `resolveIdentity`,
+`redaction`, `declared error kind` or `event recording`. Sanitizing the error
+is your job: do not log its message, stack, `name` or the object itself
+unless your policy allows it.
+
+- A configured hook replaces the console diagnostic. It is called at most
+  once per `instrument()` call, across all steps and tool calls.
+- A hook that throws, rejects, or returns a hostile thenable is suppressed,
+  with no console fallback.
+- The returned promise is not awaited. Asynchronous reporting may not finish
+  before a request-scoped runtime ends.
+- The hook is not called when telemetry succeeds, and it never changes a tool
+  result, a thrown error or the neutral fallback values.
+
+The hook covers instrumentation only. Sink failures go through EventBuffer's
+own diagnostics; catch them inside your sink if you need sanitized sink logs.
+
 ## Buffering and flush timing
 
 Events are batched in memory rather than written one per call.

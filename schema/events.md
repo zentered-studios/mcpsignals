@@ -263,6 +263,60 @@ output (`"2026-09-01 23:25:24"`): `T` sorts above a space at the same byte
 offset, so a `ts >= datetime('now', '-N days')` filter would silently
 include the whole cutoff day.
 
+### Analytics Engine (Workers, aggregate only)
+
+`analyticsEngineSink` writes one Workers Analytics Engine data point per
+`tool_call`. There is no DDL: a data point is positional, and queries read
+the fields as `blobN`, `doubleN` and `index1` over the
+[SQL API](https://developers.cloudflare.com/analytics/analytics-engine/sql-api/).
+Reordering this mapping is a breaking change.
+
+| column | field | column | field |
+|---|---|---|---|
+| `index1` | `tool_name`, cut to 96 bytes | `double1` | `ts`, Unix epoch milliseconds |
+| `blob1` | `server_name` | `double2` | `duration_ms` |
+| `blob2` | `server_version` | `double3` | `success`: 1 or 0 |
+| `blob3` | `tool_name` | `double4` | `request_bytes` |
+| `blob4` | `session_id` | `double5` | `response_bytes` |
+| `blob5` | `agent_id` | `double6` | `error_code`, 0 when null |
+| `blob6` | `client_name` | `double7` | `read_only_hint`: 1, 0, or -1 when null |
+| `blob7` | `client_version` | `double8` | `destructive_hint`: 1, 0, or -1 when null |
+| `blob8` | `user_id` | | |
+| `blob9` | `org_id` | | |
+| `blob10` | `error_kind` | | |
+| `blob11` | `error_message` | | |
+| `blob12` | `arguments`, JSON-encoded | | |
+| `blob13` | `intent` | | |
+| `blob14` | `transport` | | |
+| `blob15` | `protocol_version` | | |
+| `blob16` | `request_id` | | |
+| `blob17` | `trace_id` | | |
+| `blob18` | `parent_span_id` | | |
+| `blob19` | `result_type` | | |
+
+What this loses against the D1 table:
+
+- Nulls. A null string is `""`, a null `error_code` is `0`. Hints keep null as `-1`.
+- `ts` is a double, not the row's `timestamp`. Analytics Engine sets
+  `timestamp` itself at write time, which is the flush, not the call.
+- Text over 16 KB. All blobs in a data point share 16 KB. Over that,
+  `arguments` is dropped whole. `error_message` and `intent` share what is
+  left, `error_message` first, so `intent` can end up empty. If the
+  identifier blobs alone are over 16 KB, they are cut in field order.
+- Rows past 250 per Worker invocation are dropped. The count is per sink
+  instance, so create the sink per invocation.
+- Sampling. Analytics Engine samples by `index1`. Weight every aggregate by
+  `_sample_interval`: `sum(_sample_interval)` for a count, not `count()`.
+- Retention is three months.
+
+```sql
+select blob3 as tool_name, sum(_sample_interval) as calls,
+       sum(_sample_interval * (1 - double3)) as failures
+from <dataset>
+where timestamp > now() - interval '1' day
+group by tool_name
+```
+
 ### ClickHouse
 
 ```sql

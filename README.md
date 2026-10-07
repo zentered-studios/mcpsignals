@@ -191,7 +191,10 @@ The same holds for every other library-side step around a call (byte
 counting, `resolveIdentity` / `resolve_identity`, redaction, event
 construction): a failure there is logged once, the step falls back to a
 neutral value, and the handler's own result or exception reaches the client
-unchanged.
+unchanged. That log line carries the raw error, which can contain tool
+arguments; the Node.js package's
+[`onError` hook](packages/node/README.md#instrumentation-error-diagnostics)
+replaces it.
 
 That interval/shutdown-flush pattern assumes a long-lived process. On a
 request-scoped, isolate-based runtime like Cloudflare Workers, neither is

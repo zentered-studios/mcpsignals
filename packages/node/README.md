@@ -292,8 +292,9 @@ const { flush } = instrument(server, {
 ctx.waitUntil(flush());
 ```
 
-Analytics Engine accepts 250 data points per Worker invocation, so flush
-once per invocation. Over that, the rest are dropped. The positional field
+Analytics Engine accepts 250 data points per Worker invocation. The sink
+counts them across all its flushes, so create it per invocation, as above.
+Over that, the rest are dropped. The positional field
 mapping, and what the sink loses against D1 (nulls, a row `timestamp` set at
 write time rather than call time, truncated text, sampling, three-month
 retention), are in

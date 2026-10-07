@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { analyticsEngineSink, type ToolCallEvent } from 'mcpsignals';
+import { analyticsEngineSink, EventBuffer, type ToolCallEvent } from 'mcpsignals';
 
 function makeToolCallEvent(overrides: Partial<ToolCallEvent> = {}): ToolCallEvent {
   return {
@@ -239,7 +239,7 @@ test('blobs over 16 KB in total are truncated to fit, and the warning is logged 
   assert.equal(warnings.length, 1);
 });
 
-test('a flush writes at most 250 data points and warns once about the rest', async () => {
+test('a sink writes at most 250 data points in total and warns once about the rest', async () => {
   const dataset = makeFakeDataset();
   const sink = analyticsEngineSink(dataset);
   const { warnings, restore } = silenceWarnings();
@@ -252,8 +252,72 @@ test('a flush writes at most 250 data points and warns once about the rest', asy
     restore();
   }
 
-  assert.equal(dataset.points.length, 500);
+  assert.equal(dataset.points.length, 250);
   assert.deepEqual(dataset.points[249].indexes, ['t249']);
   assert.equal(warnings.length, 1);
   assert.match(warnings[0], /250/);
+});
+
+test('the 250 limit holds across the automatic flushes of an EventBuffer', async () => {
+  const dataset = makeFakeDataset();
+  const buffer = new EventBuffer({ sinks: [analyticsEngineSink(dataset)], flushIntervalMs: null });
+  const { warnings, restore } = silenceWarnings();
+
+  try {
+    // The default bufferSize of 20 flushes 13 times; each write is under 250.
+    for (let i = 0; i < 260; i++) buffer.push(makeToolCallEvent({ tool_name: `t${i}` }));
+    await buffer.flush();
+  } finally {
+    restore();
+  }
+
+  assert.equal(dataset.points.length, 250);
+  assert.equal(warnings.length, 1);
+});
+
+test('identifier blobs over 16 KB are cut to fit, and later events are still written', async () => {
+  const dataset = makeFakeDataset();
+  const sink = analyticsEngineSink(dataset);
+  const { warnings, restore } = silenceWarnings();
+
+  try {
+    await sink.write([
+      makeToolCallEvent({ user_id: 'u'.repeat(20_000), intent: 'dropped', request_id: 'r1' }),
+      makeToolCallEvent({ tool_name: 'valid', intent: 'kept' })
+    ]);
+  } finally {
+    restore();
+  }
+
+  assert.equal(dataset.points.length, 2);
+  const [oversized, valid] = dataset.points;
+  const blobs = (oversized.blobs ?? []) as string[];
+  assert.equal(blobs.length, 19, 'positions are kept');
+  assert.ok(blobs.reduce((sum, blob) => sum + byteLength(blob), 0) <= 16_000);
+  assert.equal(blobs[0], 's', 'blobs before the oversized one are whole');
+  assert.equal(byteLength(blobs[7]), 16_000 - 8, 'user_id takes what is left');
+  assert.equal(blobs[15], '', 'blobs after it are emptied');
+  assert.equal(valid.blobs?.[12], 'kept');
+  assert.equal(warnings.length, 1);
+});
+
+test('an oversized error_message keeps the leftover budget; intent and arguments are emptied', async () => {
+  const dataset = makeFakeDataset();
+  const sink = analyticsEngineSink(dataset);
+  const { restore } = silenceWarnings();
+  // 2-byte characters: 20,000 bytes. server_name and tool_name use 1 + 7 bytes.
+  const errorMessage = 'é'.repeat(10_000);
+
+  try {
+    await sink.write([
+      makeToolCallEvent({ error_message: errorMessage, intent: 'short', arguments: { q: 'x' } })
+    ]);
+  } finally {
+    restore();
+  }
+
+  const [point] = dataset.points;
+  assert.equal(point.blobs?.[10], 'é'.repeat((16_000 - 8) / 2));
+  assert.equal(point.blobs?.[11], '', 'arguments dropped');
+  assert.equal(point.blobs?.[12], '', 'intent emptied');
 });

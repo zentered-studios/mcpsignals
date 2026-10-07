@@ -90,15 +90,19 @@ const SHRINKABLE_BLOBS = [ERROR_MESSAGE_BLOB, INTENT_BLOB, ARGUMENTS_BLOB];
  *
  * Limits are enforced before writing, with a warning logged at most once
  * per sink instance for each:
- * - Blobs over 16 KB in total: `arguments` is dropped whole, since truncated
- *   JSON can't be parsed. Then `intent`, then `error_message`, are truncated.
+ * - Blobs over 16 KB in total: `arguments` is dropped whole when it does not
+ *   fit, since truncated JSON can't be parsed. `error_message`, then `intent`,
+ *   share what is left, so `intent` can end up empty. If the identifier blobs
+ *   alone are over 16 KB, they are cut in field order too.
  * - The index (`tool_name`) is cut to 96 bytes. `blob3` keeps it whole.
- * - A flush writes at most 250 data points. The rest are dropped. The limit
- *   is per Worker invocation, so flush once per invocation.
+ * - A sink instance writes at most 250 data points in total. The rest are
+ *   dropped. The limit is per Worker invocation, so create the sink per
+ *   invocation, as in the example in the package README.
  */
 export function analyticsEngineSink(dataset: AnalyticsEngineDataset): Sink {
   let warnedTruncated = false;
   let warnedOverCap = false;
+  let remainingPoints = MAX_DATA_POINTS;
 
   function fitBlobs(blobs: string[]): string[] {
     const sizes = blobs.map(blob => encoder.encode(blob).length);
@@ -109,7 +113,7 @@ export function analyticsEngineSink(dataset: AnalyticsEngineDataset): Sink {
       warnedTruncated = true;
       console.error(
         `[mcpsignals] analyticsEngineSink: truncating a data point's blobs to ${MAX_BLOB_BYTES} bytes ` +
-          '(arguments dropped, intent and error_message cut); further occurrences this instance are suppressed.'
+          '(arguments dropped, intent and error_message cut, then any remaining blob); further occurrences this instance are suppressed.'
       );
     }
 
@@ -125,22 +129,32 @@ export function analyticsEngineSink(dataset: AnalyticsEngineDataset): Sink {
       }
       budget -= encoder.encode(fitted[i]).length;
     }
-    return fitted;
+
+    // The identifiers alone can be over budget. Cut them in field order, so
+    // the point still fits and every blob keeps its position.
+    let remaining = MAX_BLOB_BYTES;
+    return fitted.map(blob => {
+      const kept = truncateUtf8(blob, remaining);
+      remaining -= encoder.encode(kept).length;
+      return kept;
+    });
   }
 
   return {
     async write(events: AnyEvent[]): Promise<void> {
       const toolCalls = events.filter(event => event.event_type === 'tool_call');
-      if (toolCalls.length > MAX_DATA_POINTS && !warnedOverCap) {
+      if (toolCalls.length > remainingPoints && !warnedOverCap) {
         warnedOverCap = true;
         console.error(
-          `[mcpsignals] analyticsEngineSink: dropping ${toolCalls.length - MAX_DATA_POINTS} event(s) over the ` +
+          `[mcpsignals] analyticsEngineSink: dropping ${toolCalls.length - remainingPoints} event(s) over the ` +
             `${MAX_DATA_POINTS} data points Analytics Engine accepts per Worker invocation; ` +
             'further occurrences this instance are suppressed.'
         );
       }
 
-      for (const event of toolCalls.slice(0, MAX_DATA_POINTS)) {
+      const accepted = toolCalls.slice(0, remainingPoints);
+      remainingPoints -= accepted.length;
+      for (const event of accepted) {
         dataset.writeDataPoint({
           indexes: [truncateUtf8(event.tool_name, MAX_INDEX_BYTES)],
           blobs: fitBlobs(blobsOf(event)),

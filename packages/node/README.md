@@ -218,7 +218,7 @@ independent of this library.
 ## Sinks
 
 ```ts
-import { postgresSink, bigquerySink, otlpSink, d1Sink } from 'mcpsignals';
+import { postgresSink, bigquerySink, otlpSink, d1Sink, analyticsEngineSink } from 'mcpsignals';
 ```
 
 Each sink pulls credentials from its own client library's usual defaults
@@ -267,3 +267,34 @@ than an ISO string, because SQLite's `datetime()` output doesn't compare
 correctly against `toISOString()`'s. See the `d1Sink` doc comment
 (`src/sinks/d1.ts`) and `schema/events.md`'s D1 section for the full
 reasoning.
+
+### Analytics Engine
+
+`analyticsEngineSink(dataset)` writes one Workers Analytics Engine data
+point per tool call, via an `AnalyticsEngineDataset` binding. It is
+aggregate only. Use `d1Sink` for full-fidelity rows.
+
+```toml
+[[analytics_engine_datasets]]
+binding = "MCPSIGNALS"
+dataset = "mcpsignals_tool_call"
+```
+
+```ts
+const { flush } = instrument(server, {
+  serverName: 'my-server',
+  sinks: [analyticsEngineSink(env.MCPSIGNALS)],
+  flushIntervalMs: null // manual mode - see "Request-scoped runtimes" above
+});
+
+// ...handle the request...
+
+ctx.waitUntil(flush());
+```
+
+Analytics Engine accepts 250 data points per Worker invocation, so flush
+once per invocation. Over that, the rest are dropped. The positional field
+mapping, and what the sink loses against D1 (nulls, a row `timestamp` set at
+write time rather than call time, truncated text, sampling, three-month
+retention), are in
+`schema/events.md`'s Analytics Engine section.

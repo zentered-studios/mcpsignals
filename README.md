@@ -85,7 +85,7 @@ OpenTelemetry collector instead.
 | Runtime | Node.js 20+ | Python 3.10+ | Go 1.25.0+ |
 | MCP SDK | `@modelcontextprotocol/server` v2 (peer dep, with `zod` v4) | `mcp` v2 | Official `go-sdk/mcp` v1.8.0 |
 | Instruments | `McpServer` | `MCPServer` and the low-level `Server` | `*mcp.Server` receiving middleware |
-| Built-in sinks | Console, Postgres, BigQuery, OTLP, D1 | Console, Postgres, BigQuery, OTLP | Console (stderr by default); custom sink interface |
+| Built-in sinks | Console, Postgres, BigQuery, OTLP, D1, Analytics Engine | Console, Postgres, BigQuery, OTLP | Console (stderr by default); custom sink interface |
 | Intent capture | Yes | Yes | Deferred |
 
 All three packages write the same event contract, so their servers can share
@@ -143,6 +143,7 @@ mean "record everything":
 | Postgres | `postgresSink()` | `PostgresSink()` | `pg` v8 / `mcpsignals[postgres]` |
 | BigQuery | `bigquerySink()` | `BigQuerySink()` | `@google-cloud/bigquery` v7 / `mcpsignals[bigquery]` |
 | D1 | `d1Sink()` | - | none (takes a `D1Database` binding directly) |
+| Analytics Engine (aggregate only) | `analyticsEngineSink()` | - | none (takes an `AnalyticsEngineDataset` binding directly) |
 | OTLP | `otlpSink()` | `OtlpSink()` | `@opentelemetry/api` v1 / `mcpsignals[otlp]` |
 
 Node.js imports these from `mcpsignals`, Python from `mcpsignals.sinks`;
@@ -174,6 +175,12 @@ using whatever `TracerProvider` your app already configured (standard OTel
 zero-code pattern - this sink does not manage its own exporter). D1 is
 Node-only: the Python package has no Cloudflare Workers story, and D1 is
 only reachable from a Worker.
+
+Analytics Engine is Node-only for the same reason: it has no HTTP write
+endpoint. It keeps aggregate data, not an audit log: nulls collapse, long
+text is cut, rows are sampled, and retention is three months. Use D1 for
+full-fidelity rows. See [`schema/events.md`](schema/events.md) for the
+field mapping and what it loses.
 
 Credentials come from each sink's own SDK defaults and environment
 (`PGHOST`, Application Default Credentials, `OTEL_EXPORTER_OTLP_ENDPOINT`),

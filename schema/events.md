@@ -300,8 +300,11 @@ What this loses against the D1 table:
 - `ts` is a double, not the row's `timestamp`. Analytics Engine sets
   `timestamp` itself at write time, which is the flush, not the call.
 - Text over 16 KB. All blobs in a data point share 16 KB. Over that,
-  `arguments` is dropped whole, then `intent` and `error_message` are cut.
-- Rows past 250 per Worker invocation are dropped.
+  `arguments` is dropped whole. `error_message` and `intent` share what is
+  left, `error_message` first, so `intent` can end up empty. If the
+  identifier blobs alone are over 16 KB, they are cut in field order.
+- Rows past 250 per Worker invocation are dropped. The count is per sink
+  instance, so create the sink per invocation.
 - Sampling. Analytics Engine samples by `index1`. Weight every aggregate by
   `_sample_interval`: `sum(_sample_interval)` for a count, not `count()`.
 - Retention is three months.

@@ -192,9 +192,9 @@ function extractErrorMessage(result: ToolResultLike): string | null {
  * guarded: a failure is reported once per `instrument()` call, to `onError`
  * when configured, otherwise to `console.error`, then suppressed, and the
  * step falls back to a neutral value (`request_bytes`/`response_bytes` 0,
- * empty identity, `arguments: null`). A failing redactor therefore records `arguments: null`, never the
- * raw arguments. A failure inside a sink is handled separately by
- * EventBuffer, also logged once per sink.
+ * empty identity, `arguments: null`). A failing redactor therefore records
+ * `arguments: null`, never the raw arguments. A failure inside a sink is
+ * handled separately by EventBuffer, also logged once per sink.
  */
 export function instrument(server: McpServer, options: InstrumentOptions): InstrumentHandle {
   const buffer = new EventBuffer({

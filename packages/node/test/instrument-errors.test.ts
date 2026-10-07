@@ -255,6 +255,17 @@ const hostileHooks: [string, () => unknown][] = [
   ['returns a thenable that never settles', () => ({ then() {} })]
 ];
 
+/** The protocol error a client receives for a tool the server does not have. */
+function missingToolError(client: Awaited<ReturnType<typeof connectClient>>) {
+  return client.callTool({ name: 'missing', arguments: {} }).then(
+    () => assert.fail('expected the unknown tool to be rejected'),
+    (error: { code?: unknown; message?: unknown }) => ({
+      code: error.code,
+      message: error.message
+    })
+  );
+}
+
 /** What an uninstrumented server answers for an unknown tool. */
 async function unknownToolError() {
   const server = new McpServer({ name: 'test-server', version: '1.0.0' });
@@ -263,13 +274,7 @@ async function unknownToolError() {
   }));
   const client = await connectClient(server);
   try {
-    return await client.callTool({ name: 'missing', arguments: {} }).then(
-      () => assert.fail('expected the unknown tool to be rejected'),
-      (error: { code?: unknown; message?: unknown }) => ({
-        code: error.code,
-        message: error.message
-      })
-    );
+    return await missingToolError(client);
   } finally {
     await client.close();
     await server.close();
@@ -309,13 +314,7 @@ for (const [kind, hook] of hostileHooks) {
       ]);
       assert.equal(textOf(result), 'unchanged');
 
-      const failed = await client.callTool({ name: 'missing', arguments: {} }).then(
-        () => assert.fail('expected the unknown tool to be rejected'),
-        (error: { code?: unknown; message?: unknown }) => ({
-          code: error.code,
-          message: error.message
-        })
-      );
+      const failed = await missingToolError(client);
       assert.deepEqual(failed, baseline, 'the protocol error reaches the client unchanged');
 
       await flush();

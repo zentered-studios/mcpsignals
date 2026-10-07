@@ -14,6 +14,15 @@ import {
 import { EventBuffer } from './buffer.js';
 import { boundedString, MAX_IDENTIFIER_LENGTH } from './bounded.js';
 
+/** The library-side step around a tool call that failed, as passed to `onError`. */
+export type TelemetryErrorStep =
+  | 'request byte count'
+  | 'response byte count'
+  | 'resolveIdentity'
+  | 'redaction'
+  | 'declared error kind'
+  | 'event recording';
+
 export interface InstrumentOptions {
   /** Required: this server's logical name. Not derivable from the McpServer instance (its `serverInfo` is private), so it's an explicit option. */
   serverName: string;
@@ -31,6 +40,11 @@ export interface InstrumentOptions {
     | { userId?: string; orgId?: string }
     | undefined
     | Promise<{ userId?: string; orgId?: string } | undefined>;
+  /**
+   * Replaces the raw `console.error` diagnostic for a telemetry failure. Called at most once per `instrument()` call, with a fixed step and the raw error, which can contain tool arguments: the host must sanitize it before logging.
+   * A throw or rejection is suppressed with no console fallback. The returned promise is not awaited. Sink failures do not reach this hook.
+   */
+  onError?: (step: TelemetryErrorStep, error: unknown) => void | Promise<void>;
   bufferSize?: number;
   /** Pass `null` for manual mode: no interval timer, no `beforeExit` listener — flush explicitly via the returned handle's `flush()`. */
   flushIntervalMs?: number | null;
@@ -175,12 +189,12 @@ function extractErrorMessage(result: ToolResultLike): string | null {
  * unchanged, and a thrown error is re-thrown unchanged; this wrapper only
  * observes it. Every library-side step (request/response byte counting,
  * `resolveIdentity`, redaction, event construction, the buffer push) is
- * guarded: a failure is logged once per `instrument()` call via
- * `console.error`, then suppressed, and the step falls back to a neutral
- * value (`request_bytes`/`response_bytes` 0, empty identity, `arguments:
- * null`). A failing redactor therefore records `arguments: null`, never the
- * raw arguments. A failure inside a sink is handled separately by
- * EventBuffer, also logged once per sink.
+ * guarded: a failure is reported once per `instrument()` call, to `onError`
+ * when configured, otherwise to `console.error`, then suppressed, and the
+ * step falls back to a neutral value (`request_bytes`/`response_bytes` 0,
+ * empty identity, `arguments: null`). A failing redactor therefore records
+ * `arguments: null`, never the raw arguments. A failure inside a sink is
+ * handled separately by EventBuffer, also logged once per sink.
  */
 export function instrument(server: McpServer, options: InstrumentOptions): InstrumentHandle {
   const buffer = new EventBuffer({
@@ -193,16 +207,27 @@ export function instrument(server: McpServer, options: InstrumentOptions): Instr
   // to this instrument() call: one line is enough to surface a broken
   // resolver or redactor, and a line per tool call would drown the host's logs.
   let telemetryWarned = false;
-  const warnOnce = (step: string, error: unknown): void => {
+  const warnOnce = (step: TelemetryErrorStep, error: unknown): void => {
     if (telemetryWarned) return;
     telemetryWarned = true;
+    if (options.onError) {
+      // The raw error can carry tool arguments, so a hook failure must never
+      // fall back to the console. Promise.resolve also absorbs a hostile
+      // thenable: a throwing `then` becomes a rejection caught here.
+      try {
+        Promise.resolve(options.onError(step, error)).catch(() => {});
+      } catch {
+        // A synchronous throw is suppressed like a rejection.
+      }
+      return;
+    }
     console.error(
       `[mcpsignals] ${step} failed; the tool result is unaffected and further telemetry errors from this instrument() call are suppressed:`,
       error
     );
   };
   /** Runs one library-side step; on a throw, logs once and returns `fallback`. */
-  const guarded = <T>(step: string, fn: () => T, fallback: T): T => {
+  const guarded = <T>(step: TelemetryErrorStep, fn: () => T, fallback: T): T => {
     try {
       return fn();
     } catch (error) {
@@ -211,7 +236,11 @@ export function instrument(server: McpServer, options: InstrumentOptions): Instr
     }
   };
   /** `guarded` for an async step: a throw or a rejection logs once and yields `fallback`. */
-  const guardedAsync = async <T>(step: string, fn: () => Promise<T>, fallback: T): Promise<T> => {
+  const guardedAsync = async <T>(
+    step: TelemetryErrorStep,
+    fn: () => Promise<T>,
+    fallback: T
+  ): Promise<T> => {
     try {
       return await fn();
     } catch (error) {

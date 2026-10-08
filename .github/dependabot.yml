@@ -11,6 +11,12 @@ updates:
       npm-dependencies:
         patterns:
           - "*"
+    ignore:
+      # tsup's declaration build (rollup-plugin-dts) crashes on TS 7, and the
+      # root overrides pin typescript to ^5.9.0. Lift this when the dts build
+      # no longer goes through rollup-plugin-dts.
+      - dependency-name: typescript
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: uv
     directory: /packages/python

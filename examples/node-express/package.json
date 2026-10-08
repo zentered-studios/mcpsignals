@@ -7,9 +7,9 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@modelcontextprotocol/express": "^2.0.1",
-    "@modelcontextprotocol/node": "^2.1.0",
-    "@modelcontextprotocol/server": "^2.0.0",
+    "@modelcontextprotocol/express": "^2.0.2",
+    "@modelcontextprotocol/node": "^2.1.1",
+    "@modelcontextprotocol/server": "^2.3.0",
     "express": "^5.0.0",
     "mcpsignals": "*",
     "zod": "^4.6.5"
@@ -17,6 +17,6 @@
   "devDependencies": {
     "@types/express": "^5.0.0",
     "tsx": "^4.23.15",
-    "typescript": "^5.9.0"
+    "typescript": "^7.0.2"
   }
 }

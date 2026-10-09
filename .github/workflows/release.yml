@@ -9,11 +9,6 @@ on:
 permissions:
   contents: read
 
-# Never let two releases compute a version from the same history at once.
-concurrency:
-  group: release
-  cancel-in-progress: false
-
 jobs:
   # This job deliberately declares no `environment`. It is the job that decides
   # whether there is a release at all, so binding it to an approval-gated
@@ -28,6 +23,13 @@ jobs:
   release:
     if: github.repository == 'zentered-studios/mcpsignals'
     runs-on: ubuntu-latest
+    # Never let two releases compute a version from the same history at once.
+    # The group sits on this job, not the workflow: GitHub counts a job waiting
+    # on a required reviewer as pending and cancels it when a newer run joins
+    # the group, which dropped the v2.5.0 publish jobs.
+    concurrency:
+      group: release
+      cancel-in-progress: false
     # Consumed by the publish jobs below, which must not run when the commits
     # since the last tag produced no release.
     outputs:

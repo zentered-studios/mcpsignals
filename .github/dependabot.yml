@@ -17,6 +17,12 @@ updates:
       # no longer goes through rollup-plugin-dts.
       - dependency-name: typescript
         update-types: ["version-update:semver-major"]
+      # The conventionalcommits preset 10.x needs conventional-changelog-writer
+      # 9+, but @semantic-release/release-notes-generator still loads writer 8,
+      # so the Release job fails in generateNotes. Lift this when the release
+      # notes plugin depends on conventional-changelog-writer 9.
+      - dependency-name: conventional-changelog-conventionalcommits
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: uv
     directory: /packages/python

@@ -74,6 +74,9 @@
     "model-context-protocol",
     "observability",
     "instrumentation",
-    "analytics"
+    "analytics",
+    "agents",
+    "llm",
+    "opentelemetry"
   ]
 }

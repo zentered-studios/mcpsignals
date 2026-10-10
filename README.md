@@ -77,6 +77,40 @@ success/failure, byte sizes - to wherever `sinks` points. See
 [Sinks](#sinks) to send those rows to Postgres, BigQuery, or your
 OpenTelemetry collector instead.
 
+## What it finds
+
+[Roadbook](https://roadbook.us) runs mcpsignals on its MCP server and writes
+to Cloudflare D1. These are its 23 tool calls from 2026-09-03 to 2026-10-08,
+all successful, all from Claude Code:
+
+| Tool | Calls | Avg request | Avg response | Response / request |
+|---|---|---|---|---|
+| `list_journal_entries` | 4 | 117 B | 29.9 KB | 256x |
+| `read_trip_itinerary` | 1 | 129 B | 28.4 KB | 220x |
+| `read_trip` | 6 | 129 B | 17.2 KB | 133x |
+| `read_journal` | 2 | 114 B | 7.4 KB | 65x |
+| `list_trips` | 8 | 114 B | 1.0 KB | 9x |
+| `search_places` | 2 | 191 B | 301 B | 1.6x |
+
+No tool failed, so an error dashboard would show nothing. The byte columns
+show the cost: each `list_journal_entries` call puts roughly 7,500 tokens
+into the agent's context (estimated at 4 bytes per token). That is the tool
+to trim first.
+
+The same query against the Postgres sink's table:
+
+```sql
+select tool_name,
+       count(*) as calls,
+       round(avg(request_bytes)) as avg_request_bytes,
+       round(avg(response_bytes)) as avg_response_bytes,
+       round(avg(response_bytes) / nullif(avg(request_bytes), 0), 1) as ratio
+from mcpsignals_tool_call
+where success
+group by tool_name
+order by ratio desc;
+```
+
 ## Compatibility
 
 |  | Node.js | Python | Go |

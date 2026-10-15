@@ -47,7 +47,7 @@ Changelog = "https://github.com/zentered-studios/mcpsignals/releases"
 dev = [
     "pytest>=8.3",
     "pytest-asyncio>=0.24", # required by asyncio_mode = "auto" below
-    "ruff>=0.15,<0.17",     # single source of truth for the version CI uses
+    "ruff>=0.15,<0.18",     # single source of truth for the version CI uses
 ]
 
 [tool.hatch.build.targets.wheel]

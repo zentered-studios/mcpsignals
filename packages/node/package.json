@@ -43,7 +43,7 @@
     "@modelcontextprotocol/server": "^2.0.0",
     "@opentelemetry/api": "^1.9.0",
     "pg": "^8.23.1",
-    "zod": "^4.6.5"
+    "zod": "^4.6.6"
   },
   "peerDependenciesMeta": {
     "pg": {
@@ -57,17 +57,17 @@
     }
   },
   "devDependencies": {
-    "@google-cloud/bigquery": "^9.0.3",
+    "@google-cloud/bigquery": "^9.2.0",
     "@modelcontextprotocol/client": "^2.3.1",
     "@modelcontextprotocol/server": "^2.3.1",
     "@opentelemetry/api": "^1.9.0",
-    "@types/node": "^26.6.4",
+    "@types/node": "^26.6.5",
     "@types/pg": "^8.11.0",
     "pg": "^8.23.1",
     "tsup": "^8.3.0",
     "tsx": "^4.23.15",
     "typescript": "^5.9.0",
-    "zod": "^4.6.5"
+    "zod": "^4.6.6"
   },
   "keywords": [
     "mcp",

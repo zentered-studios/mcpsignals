@@ -12,7 +12,7 @@
     "@modelcontextprotocol/server": "^2.3.1",
     "fastify": "^5.12.4",
     "mcpsignals": "*",
-    "zod": "^4.6.5"
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "tsx": "^4.23.15",

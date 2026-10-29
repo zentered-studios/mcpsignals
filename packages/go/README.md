@@ -205,15 +205,15 @@ authoritative. Use declared categories for precise application failures.
 
 ## Feature parity and deferred work
 
-| Feature | Go | Node.js / Python |
-|---|---|---|
-| Shared tool-call contract, privacy controls, declared error kinds | Implemented | Implemented |
-| Console JSON lines / custom sinks | Implemented; console defaults to stderr | Implemented |
-| Size/interval buffer, explicit flush/close | Implemented | Implemented |
-| Manual mode | No automatic writes | Size trigger remains active |
-| Postgres / BigQuery / OTLP built-in sinks | **Deferred** | Implemented |
-| Intent capture / schema injection | **Deferred** | Implemented |
-| D1 sink | Not planned for this integration | Node.js only |
+| Feature                                                           | Go                                      | Node.js / Python            |
+| ----------------------------------------------------------------- | --------------------------------------- | --------------------------- |
+| Shared tool-call contract, privacy controls, declared error kinds | Implemented                             | Implemented                 |
+| Console JSON lines / custom sinks                                 | Implemented; console defaults to stderr | Implemented                 |
+| Size/interval buffer, explicit flush/close                        | Implemented                             | Implemented                 |
+| Manual mode                                                       | No automatic writes                     | Size trigger remains active |
+| Postgres / BigQuery / OTLP built-in sinks                         | **Deferred**                            | Implemented                 |
+| Intent capture / schema injection                                 | **Deferred**                            | Implemented                 |
+| D1 sink                                                           | Not planned for this integration        | Node.js only                |
 
 Deferred features are tracked in [the Go implementation notes](../../docs/go-sdk.md#deferred-scope).
 Use the public `Sink` interface for your own warehouse adapter:

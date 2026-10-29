@@ -36,11 +36,11 @@ config file format" rule.
 
 The common cases:
 
-| Where you're running | How ADC resolves |
-|---|---|
-| Locally | `gcloud auth application-default login`, or set `GOOGLE_APPLICATION_CREDENTIALS` to a service account key file's path |
-| On GCP (Cloud Run, GKE, Compute Engine, Cloud Functions) | Automatic, via the metadata server - attach a service account with the right role to the workload, no env var needed |
-| Anywhere else (your own servers, CI) | Set `GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account-key.json` |
+| Where you're running                                     | How ADC resolves                                                                                                      |
+| -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Locally                                                  | `gcloud auth application-default login`, or set `GOOGLE_APPLICATION_CREDENTIALS` to a service account key file's path |
+| On GCP (Cloud Run, GKE, Compute Engine, Cloud Functions) | Automatic, via the metadata server - attach a service account with the right role to the workload, no env var needed  |
+| Anywhere else (your own servers, CI)                     | Set `GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account-key.json`                                                |
 
 The service account (or your own user credentials, locally) needs at least
 **BigQuery Data Editor** on the dataset, so it can insert rows. It does not

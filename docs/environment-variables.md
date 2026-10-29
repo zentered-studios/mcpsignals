@@ -15,14 +15,14 @@ info the same way both libraries always have: standard `libpq`-style
 environment variables, read when you don't pass a `connectionString`/`dsn`
 or an existing pool.
 
-| Variable | Meaning | Default |
-|---|---|---|
-| `PGHOST` | Server host | `localhost` |
-| `PGPORT` | Server port | `5432` |
-| `PGUSER` | Username | current OS user |
-| `PGPASSWORD` | Password | (none) |
-| `PGDATABASE` | Database name | same as `PGUSER` |
-| `PGSSLMODE` | SSL mode | driver default (usually `prefer`) |
+| Variable     | Meaning       | Default                           |
+| ------------ | ------------- | --------------------------------- |
+| `PGHOST`     | Server host   | `localhost`                       |
+| `PGPORT`     | Server port   | `5432`                            |
+| `PGUSER`     | Username      | current OS user                   |
+| `PGPASSWORD` | Password      | (none)                            |
+| `PGDATABASE` | Database name | same as `PGUSER`                  |
+| `PGSSLMODE`  | SSL mode      | driver default (usually `prefer`) |
 
 Verified directly against the installed `asyncpg` source (`connect_utils.py`)
 and matches `pg`'s (Node.js) documented behavior - both fall back to these
@@ -69,14 +69,14 @@ needs to install and configure an OpenTelemetry SDK. The common path is the
 "zero-code" / auto-instrumentation launcher, which reads these standard
 OTel env vars:
 
-| Variable | Meaning |
-|---|---|
-| `OTEL_SERVICE_NAME` | Service name attached to every span |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | Collector endpoint, e.g. `http://localhost:4318` |
-| `OTEL_EXPORTER_OTLP_PROTOCOL` | `grpc`, `http/protobuf`, or `http/json` |
-| `OTEL_EXPORTER_OTLP_HEADERS` | Extra headers (auth tokens, etc.), `key=value,key2=value2` |
-| `OTEL_TRACES_EXPORTER` | Usually `otlp` |
-| `OTEL_RESOURCE_ATTRIBUTES` | Extra resource attributes, same `key=value` format |
+| Variable                      | Meaning                                                    |
+| ----------------------------- | ---------------------------------------------------------- |
+| `OTEL_SERVICE_NAME`           | Service name attached to every span                        |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | Collector endpoint, e.g. `http://localhost:4318`           |
+| `OTEL_EXPORTER_OTLP_PROTOCOL` | `grpc`, `http/protobuf`, or `http/json`                    |
+| `OTEL_EXPORTER_OTLP_HEADERS`  | Extra headers (auth tokens, etc.), `key=value,key2=value2` |
+| `OTEL_TRACES_EXPORTER`        | Usually `otlp`                                             |
+| `OTEL_RESOURCE_ATTRIBUTES`    | Extra resource attributes, same `key=value` format         |
 
 Node.js, minimal setup alongside your server:
 

@@ -23,35 +23,35 @@ as a table that stays empty forever. See the note at the end of this file.
 
 One row per tool invocation.
 
-| field | type | nullable | notes |
-|---|---|---|---|
-| `ts` | timestamp | no | UTC. When the call started, not when it finished. |
-| `server_name` | string | no | The MCP server's advertised name. |
-| `server_version` | string | yes | The MCP server's advertised version. |
-| `tool_name` | string | no | Truncated to 128 chars when it comes from the `tools/call` request rather than the registration. |
-| `session_id` | string | yes | Groups calls into one task. The transport's session where one exists: the `Mcp-Session-Id` of a stateful streamable HTTP connection (protocol revisions up to 2025-11-25). Revision 2026-07-28 removes protocol sessions, so on it `session_id` comes only from intent capture. Truncated to 128 chars. |
-| `agent_id` | string | yes | Distinguishes parallel agents sharing a session. Only present if the host or intent-capture supplies one. Truncated to 128 chars when it comes from intent capture. |
-| `client_name` | string | yes | The client's self-reported `clientInfo.name`: from the `initialize` handshake, or on revision 2026-07-28 from the request's `io.modelcontextprotocol/clientInfo` `_meta` key. The protocol does not verify it. Truncated to 128 chars. |
-| `client_version` | string | yes | The client's self-reported `clientInfo.version`, from the same place as `client_name`. Truncated to 128 chars. |
-| `user_id` | string | yes | The host application supplies this. The library never invents or infers it. |
-| `org_id` | string | yes | Same as `user_id`: host-supplied only. |
-| `duration_ms` | integer | no | Wall time from call start to response, including any handler-internal await. |
-| `success` | boolean | no | Ground truth: what the client received. False for a result with `isError: true` and for a `tools/call` answered with a JSON-RPC error (unknown or disabled tool, or a request or result the SDK rejects). Nothing else is consulted. |
-| `error_kind` | enum | yes | One of `not_found`, `empty`, `validation`, `auth_required`, `payment_required`, `internal`. Declared by the server or guessed from `error_message`; see "`error_kind` is declared by the server or guessed from the message" below. Null when `success` is true. |
-| `error_message` | string | yes | Truncated to 2000 chars. Null when `success` is true. |
-| `request_bytes` | integer | no | `byteLength` of the serialized `arguments` of the `tools/call` request as the client sent them, before injected intent-capture parameters are stripped. |
-| `response_bytes` | integer | no | `byteLength` of the serialized tool result. 0 when the call was answered with a JSON-RPC error. |
-| `arguments` | json | yes | The tool call's arguments. Null unless argument capture is explicitly enabled. Subject to redaction - see the redaction section of the top-level README. |
-| `intent` | string | yes | The calling agent's stated reason for the call. Only present when intent capture is enabled for this tool. Truncated to 2000 chars. |
-| `transport` | string | yes | `stdio` or `http`. All packages default to `stdio` when there is no HTTP request context, so none emits null today; the column stays nullable for future transports. Go detects HTTP from SDK request headers and takes an explicit `Transport` for legacy SSE, which exposes none. |
-| `protocol_version` | string | yes | The MCP protocol revision the call was served on, e.g. `2025-11-25` or `2026-07-28`: from the request's `io.modelcontextprotocol/protocolVersion` `_meta` key on 2026-07-28, otherwise the version negotiated in `initialize`. Truncated to 128 chars. |
-| `request_id` | string | yes | The JSON-RPC request `id`, as a string. Unique per in-flight request on one connection, not globally. Truncated to 128 chars. |
-| `trace_id` | string | yes | The 32-hex-char trace id of the W3C `traceparent` the client sent in the request `_meta`. Null when there was none or it was malformed. |
-| `parent_span_id` | string | yes | The 16-hex-char span id from the same `traceparent`: the caller's span, which this call's span is a child of. |
-| `result_type` | enum | yes | `complete` or `input_required`. `input_required` is a 2026-07-28 multi-round-trip round: the server asked the client for input and the client will call again. On a 2025-era connection the TypeScript SDK runs those rounds inside one call, which is recorded once with its final result. Null when the call was answered with a JSON-RPC error. |
-| `error_code` | integer | yes | The JSON-RPC error code, when the call was answered with a JSON-RPC error rather than a result (e.g. `-32602` for an unknown tool in the TypeScript SDK). Null for every result, `isError` ones included. Python records null for an exception whose code depends on the transport. |
-| `read_only_hint` | boolean | yes | The tool's `readOnlyHint` annotation. Null when the tool does not declare it; the spec default is false. Self-declared by the server, not verified. Python on a low-level `Server` reads both hints from the `tools/list` results it has answered, so they are null until a client lists the tools. |
-| `destructive_hint` | boolean | yes | The tool's `destructiveHint` annotation. Null when the tool does not declare it; the spec default is true, meaningful only when `readOnlyHint` is false. |
+| field              | type      | nullable | notes                                                                                                                                                                                                                                                                                                                                              |
+| ------------------ | --------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ts`               | timestamp | no       | UTC. When the call started, not when it finished.                                                                                                                                                                                                                                                                                                  |
+| `server_name`      | string    | no       | The MCP server's advertised name.                                                                                                                                                                                                                                                                                                                  |
+| `server_version`   | string    | yes      | The MCP server's advertised version.                                                                                                                                                                                                                                                                                                               |
+| `tool_name`        | string    | no       | Truncated to 128 chars when it comes from the `tools/call` request rather than the registration.                                                                                                                                                                                                                                                   |
+| `session_id`       | string    | yes      | Groups calls into one task. The transport's session where one exists: the `Mcp-Session-Id` of a stateful streamable HTTP connection (protocol revisions up to 2025-11-25). Revision 2026-07-28 removes protocol sessions, so on it `session_id` comes only from intent capture. Truncated to 128 chars.                                            |
+| `agent_id`         | string    | yes      | Distinguishes parallel agents sharing a session. Only present if the host or intent-capture supplies one. Truncated to 128 chars when it comes from intent capture.                                                                                                                                                                                |
+| `client_name`      | string    | yes      | The client's self-reported `clientInfo.name`: from the `initialize` handshake, or on revision 2026-07-28 from the request's `io.modelcontextprotocol/clientInfo` `_meta` key. The protocol does not verify it. Truncated to 128 chars.                                                                                                             |
+| `client_version`   | string    | yes      | The client's self-reported `clientInfo.version`, from the same place as `client_name`. Truncated to 128 chars.                                                                                                                                                                                                                                     |
+| `user_id`          | string    | yes      | The host application supplies this. The library never invents or infers it.                                                                                                                                                                                                                                                                        |
+| `org_id`           | string    | yes      | Same as `user_id`: host-supplied only.                                                                                                                                                                                                                                                                                                             |
+| `duration_ms`      | integer   | no       | Wall time from call start to response, including any handler-internal await.                                                                                                                                                                                                                                                                       |
+| `success`          | boolean   | no       | Ground truth: what the client received. False for a result with `isError: true` and for a `tools/call` answered with a JSON-RPC error (unknown or disabled tool, or a request or result the SDK rejects). Nothing else is consulted.                                                                                                               |
+| `error_kind`       | enum      | yes      | One of `not_found`, `empty`, `validation`, `auth_required`, `payment_required`, `internal`. Declared by the server or guessed from `error_message`; see "`error_kind` is declared by the server or guessed from the message" below. Null when `success` is true.                                                                                   |
+| `error_message`    | string    | yes      | Truncated to 2000 chars. Null when `success` is true.                                                                                                                                                                                                                                                                                              |
+| `request_bytes`    | integer   | no       | `byteLength` of the serialized `arguments` of the `tools/call` request as the client sent them, before injected intent-capture parameters are stripped.                                                                                                                                                                                            |
+| `response_bytes`   | integer   | no       | `byteLength` of the serialized tool result. 0 when the call was answered with a JSON-RPC error.                                                                                                                                                                                                                                                    |
+| `arguments`        | json      | yes      | The tool call's arguments. Null unless argument capture is explicitly enabled. Subject to redaction - see the redaction section of the top-level README.                                                                                                                                                                                           |
+| `intent`           | string    | yes      | The calling agent's stated reason for the call. Only present when intent capture is enabled for this tool. Truncated to 2000 chars.                                                                                                                                                                                                                |
+| `transport`        | string    | yes      | `stdio` or `http`. All packages default to `stdio` when there is no HTTP request context, so none emits null today; the column stays nullable for future transports. Go detects HTTP from SDK request headers and takes an explicit `Transport` for legacy SSE, which exposes none.                                                                |
+| `protocol_version` | string    | yes      | The MCP protocol revision the call was served on, e.g. `2025-11-25` or `2026-07-28`: from the request's `io.modelcontextprotocol/protocolVersion` `_meta` key on 2026-07-28, otherwise the version negotiated in `initialize`. Truncated to 128 chars.                                                                                             |
+| `request_id`       | string    | yes      | The JSON-RPC request `id`, as a string. Unique per in-flight request on one connection, not globally. Truncated to 128 chars.                                                                                                                                                                                                                      |
+| `trace_id`         | string    | yes      | The 32-hex-char trace id of the W3C `traceparent` the client sent in the request `_meta`. Null when there was none or it was malformed.                                                                                                                                                                                                            |
+| `parent_span_id`   | string    | yes      | The 16-hex-char span id from the same `traceparent`: the caller's span, which this call's span is a child of.                                                                                                                                                                                                                                      |
+| `result_type`      | enum      | yes      | `complete` or `input_required`. `input_required` is a 2026-07-28 multi-round-trip round: the server asked the client for input and the client will call again. On a 2025-era connection the TypeScript SDK runs those rounds inside one call, which is recorded once with its final result. Null when the call was answered with a JSON-RPC error. |
+| `error_code`       | integer   | yes      | The JSON-RPC error code, when the call was answered with a JSON-RPC error rather than a result (e.g. `-32602` for an unknown tool in the TypeScript SDK). Null for every result, `isError` ones included. Python records null for an exception whose code depends on the transport.                                                                |
+| `read_only_hint`   | boolean   | yes      | The tool's `readOnlyHint` annotation. Null when the tool does not declare it; the spec default is false. Self-declared by the server, not verified. Python on a low-level `Server` reads both hints from the `tools/list` results it has answered, so they are null until a client lists the tools.                                                |
+| `destructive_hint` | boolean   | yes      | The tool's `destructiveHint` annotation. Null when the tool does not declare it; the spec default is true, meaningful only when `readOnlyHint` is false.                                                                                                                                                                                           |
 
 ### Go middleware boundary
 
@@ -271,28 +271,28 @@ the fields as `blobN`, `doubleN` and `index1` over the
 [SQL API](https://developers.cloudflare.com/analytics/analytics-engine/sql-api/).
 Reordering this mapping is a breaking change.
 
-| column | field | column | field |
-|---|---|---|---|
-| `index1` | `tool_name`, cut to 96 bytes | `double1` | `ts`, Unix epoch milliseconds |
-| `blob1` | `server_name` | `double2` | `duration_ms` |
-| `blob2` | `server_version` | `double3` | `success`: 1 or 0 |
-| `blob3` | `tool_name` | `double4` | `request_bytes` |
-| `blob4` | `session_id` | `double5` | `response_bytes` |
-| `blob5` | `agent_id` | `double6` | `error_code`, 0 when null |
-| `blob6` | `client_name` | `double7` | `read_only_hint`: 1, 0, or -1 when null |
-| `blob7` | `client_version` | `double8` | `destructive_hint`: 1, 0, or -1 when null |
-| `blob8` | `user_id` | | |
-| `blob9` | `org_id` | | |
-| `blob10` | `error_kind` | | |
-| `blob11` | `error_message` | | |
-| `blob12` | `arguments`, JSON-encoded | | |
-| `blob13` | `intent` | | |
-| `blob14` | `transport` | | |
-| `blob15` | `protocol_version` | | |
-| `blob16` | `request_id` | | |
-| `blob17` | `trace_id` | | |
-| `blob18` | `parent_span_id` | | |
-| `blob19` | `result_type` | | |
+| column   | field                        | column    | field                                     |
+| -------- | ---------------------------- | --------- | ----------------------------------------- |
+| `index1` | `tool_name`, cut to 96 bytes | `double1` | `ts`, Unix epoch milliseconds             |
+| `blob1`  | `server_name`                | `double2` | `duration_ms`                             |
+| `blob2`  | `server_version`             | `double3` | `success`: 1 or 0                         |
+| `blob3`  | `tool_name`                  | `double4` | `request_bytes`                           |
+| `blob4`  | `session_id`                 | `double5` | `response_bytes`                          |
+| `blob5`  | `agent_id`                   | `double6` | `error_code`, 0 when null                 |
+| `blob6`  | `client_name`                | `double7` | `read_only_hint`: 1, 0, or -1 when null   |
+| `blob7`  | `client_version`             | `double8` | `destructive_hint`: 1, 0, or -1 when null |
+| `blob8`  | `user_id`                    |           |                                           |
+| `blob9`  | `org_id`                     |           |                                           |
+| `blob10` | `error_kind`                 |           |                                           |
+| `blob11` | `error_message`              |           |                                           |
+| `blob12` | `arguments`, JSON-encoded    |           |                                           |
+| `blob13` | `intent`                     |           |                                           |
+| `blob14` | `transport`                  |           |                                           |
+| `blob15` | `protocol_version`           |           |                                           |
+| `blob16` | `request_id`                 |           |                                           |
+| `blob17` | `trace_id`                   |           |                                           |
+| `blob18` | `parent_span_id`             |           |                                           |
+| `blob19` | `result_type`                |           |                                           |
 
 What this loses against the D1 table:
 

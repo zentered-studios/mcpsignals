@@ -38,7 +38,15 @@ instrument(server, {
   sinks: [consoleSink()]
 });
 
-server.registerTool('search', { /* ... */ }, async args => { /* ... */ });
+server.registerTool(
+  'search',
+  {
+    /* ... */
+  },
+  async args => {
+    /* ... */
+  }
+);
 ```
 
 On a stdio transport, pass `consoleSink({ stream: process.stderr })`. stdout
@@ -83,14 +91,14 @@ OpenTelemetry collector instead.
 to Cloudflare D1. These are its 23 tool calls from 2026-09-03 to 2026-10-08,
 all successful, all from Claude Code:
 
-| Tool | Calls | Avg request | Avg response | Response / request |
-|---|---|---|---|---|
-| `list_journal_entries` | 4 | 117 B | 29.9 KB | 256x |
-| `read_trip_itinerary` | 1 | 129 B | 28.4 KB | 220x |
-| `read_trip` | 6 | 129 B | 17.2 KB | 133x |
-| `read_journal` | 2 | 114 B | 7.4 KB | 65x |
-| `list_trips` | 8 | 114 B | 1.0 KB | 9x |
-| `search_places` | 2 | 191 B | 301 B | 1.6x |
+| Tool                   | Calls | Avg request | Avg response | Response / request |
+| ---------------------- | ----- | ----------- | ------------ | ------------------ |
+| `list_journal_entries` | 4     | 117 B       | 29.9 KB      | 256x               |
+| `read_trip_itinerary`  | 1     | 129 B       | 28.4 KB      | 220x               |
+| `read_trip`            | 6     | 129 B       | 17.2 KB      | 133x               |
+| `read_journal`         | 2     | 114 B       | 7.4 KB       | 65x                |
+| `list_trips`           | 8     | 114 B       | 1.0 KB       | 9x                 |
+| `search_places`        | 2     | 191 B       | 301 B        | 1.6x               |
 
 No tool failed, so an error dashboard would show nothing. The byte columns
 show the cost: each `list_journal_entries` call puts roughly 7,500 tokens
@@ -113,14 +121,14 @@ order by ratio desc;
 
 ## Compatibility
 
-|  | Node.js | Python | Go |
-|---|---|---|---|
-| Install | `npm install mcpsignals` | `pip install mcpsignals` | `go get github.com/zentered-studios/mcpsignals/packages/go/v2` |
-| Runtime | Node.js 20+ | Python 3.10+ | Go 1.25.0+ |
-| MCP SDK | `@modelcontextprotocol/server` v2 (peer dep, with `zod` v4) | `mcp` v2 | Official `go-sdk/mcp` v1.8.0 |
-| Instruments | `McpServer` | `MCPServer` and the low-level `Server` | `*mcp.Server` receiving middleware |
-| Built-in sinks | Console, Postgres, BigQuery, OTLP, D1, Analytics Engine | Console, Postgres, BigQuery, OTLP | Console (stderr by default); custom sink interface |
-| Intent capture | Yes | Yes | Deferred |
+|                | Node.js                                                     | Python                                 | Go                                                             |
+| -------------- | ----------------------------------------------------------- | -------------------------------------- | -------------------------------------------------------------- |
+| Install        | `npm install mcpsignals`                                    | `pip install mcpsignals`               | `go get github.com/zentered-studios/mcpsignals/packages/go/v2` |
+| Runtime        | Node.js 20+                                                 | Python 3.10+                           | Go 1.25.0+                                                     |
+| MCP SDK        | `@modelcontextprotocol/server` v2 (peer dep, with `zod` v4) | `mcp` v2                               | Official `go-sdk/mcp` v1.8.0                                   |
+| Instruments    | `McpServer`                                                 | `MCPServer` and the low-level `Server` | `*mcp.Server` receiving middleware                             |
+| Built-in sinks | Console, Postgres, BigQuery, OTLP, D1, Analytics Engine     | Console, Postgres, BigQuery, OTLP      | Console (stderr by default); custom sink interface             |
+| Intent capture | Yes                                                         | Yes                                    | Deferred                                                       |
 
 All three packages write the same event contract, so their servers can share
 warehouse tables and queries on `__type` (see
@@ -140,12 +148,12 @@ Use mcpsignals when you want one event contract across Node, Python, and Go,
 written straight into your own warehouse tables, with argument capture off by
 default.
 
-| | mcpsignals | AgentCat | PostHog / Sentry |
-|---|---|---|---|
-| Where data lives | your own Postgres/BigQuery/ClickHouse/OTLP collector | their cloud, or your OTLP collector with a `null` project ID | their cloud |
-| Pricing | free, it's a library | MIT SDK; hosted product is free for qualified open source projects | per-session or per-event |
-| Dashboard | none - bring your own BI tool | included in the hosted product | included |
-| Account/API key | none | optional for forwarding only | required |
+|                  | mcpsignals                                           | AgentCat                                                           | PostHog / Sentry         |
+| ---------------- | ---------------------------------------------------- | ------------------------------------------------------------------ | ------------------------ |
+| Where data lives | your own Postgres/BigQuery/ClickHouse/OTLP collector | their cloud, or your OTLP collector with a `null` project ID       | their cloud              |
+| Pricing          | free, it's a library                                 | MIT SDK; hosted product is free for qualified open source projects | per-session or per-event |
+| Dashboard        | none - bring your own BI tool                        | included in the hosted product                                     | included                 |
+| Account/API key  | none                                                 | optional for forwarding only                                       | required                 |
 
 ## Argument capture is opt-in, and redacted by default
 
@@ -171,14 +179,14 @@ mean "record everything":
 
 ## Sinks
 
-| Sink | Node.js | Python | Extra dependency |
-|---|---|---|---|
-| console | `consoleSink()` | `ConsoleSink()` | none |
-| Postgres | `postgresSink()` | `PostgresSink()` | `pg` v8 / `mcpsignals[postgres]` |
-| BigQuery | `bigquerySink()` | `BigQuerySink()` | `@google-cloud/bigquery` v7 / `mcpsignals[bigquery]` |
-| D1 | `d1Sink()` | - | none (takes a `D1Database` binding directly) |
-| Analytics Engine (aggregate only) | `analyticsEngineSink()` | - | none (takes an `AnalyticsEngineDataset` binding directly) |
-| OTLP | `otlpSink()` | `OtlpSink()` | `@opentelemetry/api` v1 / `mcpsignals[otlp]` |
+| Sink                              | Node.js                 | Python           | Extra dependency                                          |
+| --------------------------------- | ----------------------- | ---------------- | --------------------------------------------------------- |
+| console                           | `consoleSink()`         | `ConsoleSink()`  | none                                                      |
+| Postgres                          | `postgresSink()`        | `PostgresSink()` | `pg` v8 / `mcpsignals[postgres]`                          |
+| BigQuery                          | `bigquerySink()`        | `BigQuerySink()` | `@google-cloud/bigquery` v7 / `mcpsignals[bigquery]`      |
+| D1                                | `d1Sink()`              | -                | none (takes a `D1Database` binding directly)              |
+| Analytics Engine (aggregate only) | `analyticsEngineSink()` | -                | none (takes an `AnalyticsEngineDataset` binding directly) |
+| OTLP                              | `otlpSink()`            | `OtlpSink()`     | `@opentelemetry/api` v1 / `mcpsignals[otlp]`              |
 
 Node.js imports these from `mcpsignals`, Python from `mcpsignals.sinks`;
 install only the dependency for the sink you use. `console` writes JSON
@@ -190,7 +198,10 @@ MCP message" and "The server MAY write UTF-8 strings to `stderr` for any
 logging purposes." Pass the stream explicitly:
 
 ```ts
-sinks: [consoleSink({ stream: process.stderr })]
+instrument(server, {
+  serverName: 'my-server',
+  sinks: [consoleSink({ stream: process.stderr })]
+});
 ```
 
 ```python
@@ -359,10 +370,10 @@ size trigger too. Go has no shutdown hook: call `Close` on the handle before
 exit, or buffered events are lost. See the
 [Go guide](packages/go/README.md#lifecycle-and-delivery).
 
-| | Node.js | Python | Default |
-|---|---|---|---|
-| Flush after N events | `bufferSize` | `buffer_size` | 20 |
-| Flush every N | `flushIntervalMs` | `flush_interval_s` | 5000 ms / 5.0 s |
+|                      | Node.js           | Python             | Default         |
+| -------------------- | ----------------- | ------------------ | --------------- |
+| Flush after N events | `bufferSize`      | `buffer_size`      | 20              |
+| Flush every N        | `flushIntervalMs` | `flush_interval_s` | 5000 ms / 5.0 s |
 
 Whichever comes first wins, plus a best-effort flush on shutdown in Node and
 Python. Passing

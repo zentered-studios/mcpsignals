@@ -179,7 +179,7 @@ jobs:
       # Uploads everything in dist/. Credentials are deliberately absent: the
       # action mints a short-lived OIDC token and PyPI verifies it against the
       # trusted publisher registered for the project.
-      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
 
   # Go has no registry: a packages/go/vX.Y.Z tag publishes the module, and
   # proxy.golang.org fetches it on first request. The tag shares the root
